@@ -38,3 +38,30 @@ def test_web_search_offline():
 def web_search(query: str) -> str:
     from smolclaw.tools import web_search as _ws
     return _ws(query)
+
+
+def test_custom_tool_loader(tmp_path):
+    """Agent loads a valid custom tool and ignores invalid ones."""
+    from smolclaw.tool_loader import load_custom_tools
+
+    # Write a valid tool
+    (tmp_path / "ping.py").write_text("""
+SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "ping",
+        "description": "Say pong.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+}
+
+def execute() -> str:
+    return "pong"
+""")
+    # Write an invalid tool (missing execute)
+    (tmp_path / "broken.py").write_text("SCHEMA = {}")
+
+    schemas, fn_map = load_custom_tools(tmp_path)
+    assert len(schemas) == 1
+    assert "ping" in fn_map
+    assert fn_map["ping"]() == "pong"

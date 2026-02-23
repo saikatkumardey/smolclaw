@@ -11,11 +11,50 @@ import litellm
 
 from .history import append as history_append, load as history_load
 from .skills import load_skills
+from .tool_loader import load_custom_tools
 from .tools import TOOL_MAP, TOOLS
 
 logger = logging.getLogger("smolclaw.agent")
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
 MAX_STEPS = 10
+
+_TOOLS_GUIDE = """
+## Building Custom Tools
+
+You can build new tools by writing Python files to the `tools/` directory.
+
+Convention — every tool file must have:
+1. `SCHEMA` — an OpenAI-style function schema dict
+2. `execute(**kwargs) -> str` — the implementation
+
+Example (`tools/get_weather.py`):
+
+```python
+SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get current weather for a city.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "city": {"type": "string"}
+            },
+            "required": ["city"]
+        }
+    }
+}
+
+def execute(city: str) -> str:
+    import requests
+    r = requests.get(f"https://wttr.in/{city}?format=3", timeout=5)
+    return r.text if r.ok else f"Error: {r.status_code}"
+```
+
+Tools are loaded on every message — no restart needed.
+Use `shell_exec` to install any required packages first (e.g. `uv pip install requests`).
+Tell the user what tool you built and how to use it.
+"""
 
 _SKILLS_GUIDE = """
 ## Skills System
@@ -67,6 +106,7 @@ def _system_prompt() -> str:
     if skills := load_skills():
         parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
 
+    parts.append(_TOOLS_GUIDE)
     parts.append(_SKILLS_GUIDE)
 
     # Inject onboarding instructions if user is not yet known
@@ -78,6 +118,11 @@ def _system_prompt() -> str:
 
 
 def run(chat_id: str, user_message: str) -> str:
+    # Merge built-in + user-defined tools on every call
+    custom_schemas, custom_map = load_custom_tools()
+    tools = TOOLS + custom_schemas
+    tool_map = {**TOOL_MAP, **custom_map}
+
     history = history_load(chat_id)
     messages = [
         {"role": "system", "content": _system_prompt()},
@@ -87,7 +132,7 @@ def run(chat_id: str, user_message: str) -> str:
     history_append(chat_id, "user", user_message)
 
     for _ in range(MAX_STEPS):
-        response = litellm.completion(model=MODEL, messages=messages, tools=TOOLS, tool_choice="auto")
+        response = litellm.completion(model=MODEL, messages=messages, tools=tools, tool_choice="auto")
         msg = response.choices[0].message
         finish = response.choices[0].finish_reason
 
@@ -100,7 +145,7 @@ def run(chat_id: str, user_message: str) -> str:
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments)
             logger.info("Tool: %s(%s)", tc.function.name, args)
-            result = TOOL_MAP.get(tc.function.name, lambda **_: "Unknown tool")(**args)
+            result = tool_map.get(tc.function.name, lambda **_: "Unknown tool")(**args)
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
 
     return "Max steps reached."
