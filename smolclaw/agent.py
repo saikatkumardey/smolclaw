@@ -1,24 +1,27 @@
-"""litellm tool-call loop."""
+"""smolagents ToolCallingAgent loop."""
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 
-import litellm
+from smolagents import ToolCallingAgent, LiteLLMModel
+from smolagents import Tool
 
-from .history import append as history_append, load as history_load
+from .history import append as history_append
 from .skills import load_skills
 from .tool_loader import load_custom_tools
-from .tools import TOOL_MAP, TOOLS
+from .tools import TOOLS_LIST
 from . import workspace
 from .handover import load as handover_load, clear as handover_clear
 
 logger = logging.getLogger("smolclaw.agent")
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
 MAX_STEPS = 10
+
+# One agent per chat_id, cached in memory for multi-turn
+_agents: dict[str, ToolCallingAgent] = {}
+
 
 _CLI_PROTOCOL = """
 ## CLI Tool Learning Protocol
@@ -143,6 +146,7 @@ Tools:
 - self_update() — pulls latest code from GitHub and restarts (set SMOLCLAW_SOURCE env var to override the repo URL)
 """
 
+
 def _onboarding_block() -> str:
     return f"""
 ## Onboarding Protocol
@@ -226,35 +230,46 @@ def _system_prompt() -> str:
     return "\n\n".join(parts)
 
 
-def run(chat_id: str, user_message: str) -> str:
-    # Merge built-in + user-defined tools on every call
-    custom_schemas, custom_map = load_custom_tools()
-    tools = TOOLS + custom_schemas
-    tool_map = {**TOOL_MAP, **custom_map}
+def _create_agent(dynamic_tools: list[Tool]) -> ToolCallingAgent:
+    """Create a new ToolCallingAgent with the current system prompt and all tools."""
+    model = LiteLLMModel(model_id=MODEL)
+    tools = TOOLS_LIST + dynamic_tools
+    agent = ToolCallingAgent(
+        tools=tools,
+        model=model,
+        system_prompt=_system_prompt(),
+        max_steps=MAX_STEPS,
+    )
+    return agent
 
-    history = history_load(chat_id)
-    messages = [
-        {"role": "system", "content": _system_prompt()},
-        *history,
-        {"role": "user", "content": user_message},
-    ]
+
+def run(chat_id: str, user_message: str) -> str:
+    """Run one turn of conversation. Multi-turn via cached agent per chat_id."""
+    # Load dynamic tools on every call (no restart needed when new tools added)
+    dynamic_tools = load_custom_tools()
+
+    # Get or create agent for this chat
+    if chat_id not in _agents:
+        _agents[chat_id] = _create_agent(dynamic_tools)
+    else:
+        # Refresh dynamic tools on existing agent
+        agent = _agents[chat_id]
+        # Update toolbox with any new dynamic tools
+        for tool in dynamic_tools:
+            if tool.name not in agent.tools:
+                agent.tools[tool.name] = tool
+
+    agent = _agents[chat_id]
+
+    # Audit log — write-only
     history_append(chat_id, "user", user_message)
 
-    for _ in range(MAX_STEPS):
-        response = litellm.completion(model=MODEL, messages=messages, tools=tools, tool_choice="auto")
-        msg = response.choices[0].message
-        finish = response.choices[0].finish_reason
+    try:
+        result = agent.run(user_message, reset=False)
+        reply = str(result)
+    except Exception as e:
+        logger.error("Agent error: %s", e, exc_info=True)
+        reply = f"Error: {e}"
 
-        if finish == "stop" or not msg.tool_calls:
-            reply = msg.content or ""
-            history_append(chat_id, "assistant", reply)
-            return reply
-
-        messages.append(msg.model_dump(exclude_unset=True))
-        for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments)
-            logger.info("Tool: %s(%s)", tc.function.name, args)
-            result = tool_map.get(tc.function.name, lambda **_: "Unknown tool")(**args)
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
-
-    return "Max steps reached."
+    history_append(chat_id, "assistant", reply)
+    return reply
