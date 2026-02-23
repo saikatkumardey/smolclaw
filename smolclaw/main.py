@@ -20,6 +20,19 @@ def setup() -> None:
 
 
 @app.command()
+def update() -> None:
+    """Pull latest smolclaw from GitHub and reinstall."""
+    import os, shutil, subprocess, sys
+    source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
+    typer.echo(f"Updating from {source}...")
+    result = subprocess.run(["uv", "tool", "install", "--upgrade", source], text=True)
+    if result.returncode != 0:
+        typer.echo("Update failed.")
+        raise typer.Exit(1)
+    typer.echo("Updated. Run 'smolclaw start' to restart.")
+
+
+@app.command()
 def start() -> None:
     """Start the Telegram bot."""
     from . import workspace
@@ -54,6 +67,17 @@ def start() -> None:
     async def on_reload(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Memory and skills reloaded.")
 
+    async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _allowed(update):
+            return
+        await update.message.reply_text("Saving handover and updating...")
+        chat_id = str(update.effective_chat.id)
+        await asyncio.to_thread(
+            agent_run,
+            chat_id=chat_id,
+            user_message="Save a handover note summarising current context, then call self_update.",
+        )
+
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not _allowed(update):
             logger.warning("Rejected message from %s", update.effective_chat.id)
@@ -76,6 +100,7 @@ def start() -> None:
     bot.add_handler(CommandHandler("start", on_start))
     bot.add_handler(CommandHandler("status", on_status))
     bot.add_handler(CommandHandler("reload", on_reload))
+    bot.add_handler(CommandHandler("update", on_update))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     setup_scheduler().start()
     logger.info("SmolClaw running.")

@@ -14,6 +14,7 @@ from .skills import load_skills
 from .tool_loader import load_custom_tools
 from .tools import TOOL_MAP, TOOLS
 from . import workspace
+from .handover import load as handover_load, clear as handover_clear
 
 logger = logging.getLogger("smolclaw.agent")
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
@@ -121,6 +122,21 @@ When you create a skill, tell the user what you wrote so they can verify it.
 Skills are permanent — they persist across all future sessions.
 """
 
+_HANDOVER_PROTOCOL = """
+## Handover and Restart Protocol
+
+Before restarting or updating, always:
+1. Call save_handover(summary) — write a brief note covering: what you were doing, any pending tasks, important context, and what the user should expect when you come back.
+2. Then call self_restart() or self_update().
+
+On startup: if a handover note is injected into this prompt, resume the task immediately without asking the user to repeat themselves. Acknowledge the handover briefly, then continue.
+
+Tools:
+- save_handover(summary) — writes handover.md (call this before any restart)
+- self_restart() — restarts the process without updating
+- self_update() — pulls latest code from GitHub and restarts (set SMOLCLAW_SOURCE env var to override the repo URL)
+"""
+
 _ONBOARDING = """
 ## Onboarding Protocol
 
@@ -160,9 +176,15 @@ def _system_prompt() -> str:
     if skills := load_skills(workspace.SKILLS_DIR):
         parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
 
+    # Inject handover note if one exists (cleared immediately after reading)
+    if handover := handover_load():
+        parts.append(f"=== HANDOVER NOTE ===\n{handover.strip()}")
+        handover_clear()
+
     parts.append(_CLI_PROTOCOL)
     parts.append(_TOOLS_GUIDE)
     parts.append(_SKILLS_GUIDE)
+    parts.append(_HANDOVER_PROTOCOL)
 
     # Inject onboarding instructions if user is not yet known
     if "Not set yet" in workspace.read(workspace.USER):

@@ -1,8 +1,10 @@
-"""Six tools. No more."""
+"""Core tools."""
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import requests
@@ -77,6 +79,36 @@ def telegram_send(chat_id: str, message: str) -> str:
         return f"Error: {e}"
 
 
+def save_handover(summary: str) -> str:
+    """Write a handover note so state survives a restart."""
+    from .handover import save
+    save(summary)
+    return "Handover saved."
+
+
+def self_restart() -> str:
+    """Restart this process. Call save_handover first."""
+    exe = shutil.which("smolclaw") or sys.argv[0]
+    args = [exe] + sys.argv[1:] if sys.argv[1:] else [exe, "start"]
+    os.execv(exe, args)
+    return "unreachable"  # execv replaces the process
+
+
+def self_update() -> str:
+    """Pull latest smolclaw from GitHub, reinstall, and restart."""
+    source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
+    result = subprocess.run(
+        ["uv", "tool", "install", "--upgrade", source],
+        capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode != 0:
+        return f"Update failed:\n{result.stderr}"
+    exe = shutil.which("smolclaw") or sys.argv[0]
+    args = [exe, "start"]
+    os.execv(exe, args)
+    return "unreachable"
+
+
 TOOL_MAP = {
     "shell_exec": shell_exec,
     "file_read": file_read,
@@ -84,6 +116,9 @@ TOOL_MAP = {
     "web_fetch": web_fetch,
     "web_search": web_search,
     "telegram_send": telegram_send,
+    "save_handover": save_handover,
+    "self_restart": self_restart,
+    "self_update": self_update,
 }
 
 TOOLS = [
@@ -134,5 +169,22 @@ TOOLS = [
             "chat_id": {"type": "string"},
             "message": {"type": "string"},
         }, "required": ["chat_id", "message"]},
+    }},
+    {"type": "function", "function": {
+        "name": "save_handover",
+        "description": "Save a handover note so state survives restart or update. Call before self_restart or self_update.",
+        "parameters": {"type": "object", "properties": {
+            "summary": {"type": "string", "description": "Brief summary of current context, active tasks, and any pending work."},
+        }, "required": ["summary"]},
+    }},
+    {"type": "function", "function": {
+        "name": "self_restart",
+        "description": "Restart the smolclaw process in-place. Always call save_handover first.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "self_update",
+        "description": "Pull latest smolclaw from GitHub, reinstall, and restart. Always call save_handover first.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
     }},
 ]

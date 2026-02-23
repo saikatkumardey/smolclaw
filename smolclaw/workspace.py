@@ -16,6 +16,7 @@ CRONS      = HOME / "crons.yaml"
 SKILLS_DIR = HOME / "skills"
 TOOLS_DIR  = HOME / "tools"
 DB         = HOME / "smolclaw.db"
+HANDOVER   = HOME / "handover.md"
 
 # Default templates shipped with the package
 _TEMPLATES = Path(__file__).parent.parent / "templates"

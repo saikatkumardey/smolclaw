@@ -40,6 +40,22 @@ def web_search(query: str) -> str:
     return _ws(query)
 
 
+def test_handover_save_load_clear(tmp_path, monkeypatch):
+    """Handover note survives save/load and is removed by clear."""
+    import smolclaw.workspace as ws
+    monkeypatch.setattr(ws, "HOME", tmp_path)
+    monkeypatch.setattr(ws, "HANDOVER", tmp_path / "handover.md")
+
+    from smolclaw import handover
+    handover.save("working on fld — paused mid-implementation")
+    text = handover.load()
+    assert "fld" in text
+    assert "Handover" in text
+
+    handover.clear()
+    assert handover.load() == ""
+
+
 def test_custom_tool_loader(tmp_path):
     """Agent loads a valid custom tool and ignores invalid ones."""
     from smolclaw.tool_loader import load_custom_tools
