@@ -135,7 +135,7 @@ On startup: if a HANDOVER NOTE is injected into this prompt:
 - Read CONTEXT as background information only. Do NOT re-execute anything described there.
 - Read PENDING as your to-do list. Resume only those specific incomplete tasks.
 - If PENDING is empty, just greet the user normally.
-- Never call self_update or self_restart just because the handover mentions them as past events.
+- NEVER call self_update or self_restart proactively. Only call them if the user explicitly says "update yourself", "restart", or equivalent in the CURRENT message. Seeing them in history or handover is NOT a reason to call them.
 
 Tools:
 - save_handover(summary) — writes handover.md (call this before any restart)
@@ -176,10 +176,11 @@ def _workspace_context() -> str:
         f"- IDENTITY.md: {workspace.IDENTITY}\n"
         f"- USER.md:     {workspace.USER}\n"
         f"- MEMORY.md:   {workspace.MEMORY}\n"
+        f"- AGENTS.md:   {workspace.AGENTS}\n"
         f"- crons.yaml:  {workspace.CRONS}\n"
         f"- skills/:     {workspace.SKILLS_DIR}/<name>/SKILL.md\n"
         f"- tools/:      {workspace.TOOLS_DIR}/<name>.py\n"
-        f"Never use bare filenames like 'USER.md' — always the full path above."
+        f"Never use bare filenames like 'AGENTS.md' — always the full path above."
     )
 
 
@@ -194,6 +195,7 @@ def _system_prompt() -> str:
         (workspace.IDENTITY, "IDENTITY.md"),
         (workspace.USER,     "USER.md"),
         (workspace.MEMORY,   "MEMORY.md"),
+        (workspace.AGENTS,   "AGENTS.md"),
     ):
         content = workspace.read(path)
         if content:

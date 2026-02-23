@@ -12,6 +12,7 @@ SOUL       = HOME / "SOUL.md"
 IDENTITY   = HOME / "IDENTITY.md"
 USER       = HOME / "USER.md"
 MEMORY     = HOME / "MEMORY.md"
+AGENTS     = HOME / "AGENTS.md"
 CRONS      = HOME / "crons.yaml"
 SKILLS_DIR = HOME / "skills"
 TOOLS_DIR  = HOME / "tools"
@@ -28,7 +29,7 @@ def init() -> None:
     SKILLS_DIR.mkdir(exist_ok=True)
     TOOLS_DIR.mkdir(exist_ok=True)
 
-    for name in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "crons.yaml"):
+    for name in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "AGENTS.md", "crons.yaml"):
         dest = HOME / name
         if not dest.exists():
             src = _TEMPLATES / name
