@@ -8,7 +8,10 @@ from pathlib import Path
 logger = logging.getLogger("smolclaw.tool_loader")
 
 
-def load_custom_tools(tools_dir: Path = Path("tools")) -> tuple[list[dict], dict]:
+def load_custom_tools(tools_dir: Path | None = None) -> tuple[list[dict], dict]:
+    if tools_dir is None:
+        from . import workspace
+        tools_dir = workspace.TOOLS_DIR
     """
     Scan tools/*.py for user-defined tools.
 

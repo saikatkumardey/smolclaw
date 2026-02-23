@@ -21,7 +21,9 @@ def setup() -> None:
 @app.command()
 def start() -> None:
     """Start the Telegram bot."""
-    load_dotenv()
+    from . import workspace
+    workspace.init()
+    load_dotenv(workspace.HOME / ".env")
     logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
     logger = logging.getLogger("smolclaw")
 

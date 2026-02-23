@@ -34,6 +34,8 @@ def _write_env(path: Path, data: dict[str, str]) -> None:
 
 
 def run() -> None:
+    from . import workspace
+
     console.print(Panel.fit(
         "[bold]Welcome to SmolClaw[/bold]\n"
         "Your personal AI agent. Let's get you set up.\n"
@@ -41,7 +43,11 @@ def run() -> None:
         border_style="blue",
     ))
 
-    env_path = Path(".env")
+    # Bootstrap ~/.smolclaw/ with default templates
+    workspace.init()
+    console.print(f"\n  Workspace: [bold]{workspace.HOME}[/bold]")
+
+    env_path = workspace.HOME / ".env"
     env = _read_env(env_path)
 
     # ── Step 1: Telegram bot ──────────────────────────────────────────────
@@ -84,13 +90,6 @@ def run() -> None:
 
     # ── Step 4: Optional config ───────────────────────────────────────────
     console.print("\n[bold blue]Step 4 — Optional[/bold blue]")
-    if Confirm.ask("  Set a custom workspace directory?", default=False):
-        ws = Prompt.ask("  Workspace path", default=str(Path.home() / "smolclaw-workspace"))
-        env["WORKSPACE_DIR"] = ws
-        Path(ws).mkdir(parents=True, exist_ok=True)
-    else:
-        env.setdefault("WORKSPACE_DIR", str(Path.cwd()))
-
     if Confirm.ask("  Use a local SearXNG instance for web search?", default=False):
         url = Prompt.ask("  SearXNG URL", default="http://127.0.0.1:8888")
         env["SEARXNG_URL"] = url
@@ -99,7 +98,8 @@ def run() -> None:
     _write_env(env_path, env)
 
     console.print(Panel.fit(
-        "[bold green]Setup complete.[/bold green]\n\n"
+        f"[bold green]Setup complete.[/bold green]\n\n"
+        f"Workspace: [bold]{workspace.HOME}[/bold]\n\n"
         "Run [bold]smolclaw start[/bold] to launch your agent.\n"
         "Your bot will be waiting for you on Telegram.",
         border_style="green",

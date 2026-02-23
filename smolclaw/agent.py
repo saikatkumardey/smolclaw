@@ -13,6 +13,7 @@ from .history import append as history_append, load as history_load
 from .skills import load_skills
 from .tool_loader import load_custom_tools
 from .tools import TOOL_MAP, TOOLS
+from . import workspace
 
 logger = logging.getLogger("smolclaw.agent")
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
@@ -146,12 +147,17 @@ After onboarding is complete, you are no longer a blank slate. You have an ident
 def _system_prompt() -> str:
     parts = [f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}"]
 
-    for fname in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"):
-        p = Path(fname)
-        if p.exists():
-            parts.append(f"=== {fname} ===\n{p.read_text().strip()}")
+    for path, name in (
+        (workspace.SOUL,     "SOUL.md"),
+        (workspace.IDENTITY, "IDENTITY.md"),
+        (workspace.USER,     "USER.md"),
+        (workspace.MEMORY,   "MEMORY.md"),
+    ):
+        content = workspace.read(path)
+        if content:
+            parts.append(f"=== {name} ===\n{content.strip()}")
 
-    if skills := load_skills():
+    if skills := load_skills(workspace.SKILLS_DIR):
         parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
 
     parts.append(_CLI_PROTOCOL)
@@ -159,8 +165,7 @@ def _system_prompt() -> str:
     parts.append(_SKILLS_GUIDE)
 
     # Inject onboarding instructions if user is not yet known
-    user_md = Path("USER.md").read_text() if Path("USER.md").exists() else ""
-    if "Not set yet" in user_md:
+    if "Not set yet" in workspace.read(workspace.USER):
         parts.append(_ONBOARDING)
 
     return "\n\n".join(parts)

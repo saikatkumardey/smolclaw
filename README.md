@@ -54,16 +54,22 @@ Tool loads automatically on next message
 
 ## File structure
 
+All agent data lives in `~/.smolclaw/` — separate from the installed package.
+
 ```
-smolclaw/
+~/.smolclaw/
+├── .env          ← your credentials (written by smolclaw setup)
 ├── SOUL.md       ← agent personality (filled on first boot)
 ├── IDENTITY.md   ← agent name and traits
 ├── USER.md       ← your preferences (filled on first boot)
 ├── MEMORY.md     ← long-term memory (grows over time)
+├── smolclaw.db   ← conversation history (SQLite)
 ├── skills/       ← learned behaviors (markdown)
 ├── tools/        ← learned tools (Python)
 └── crons.yaml    ← scheduled jobs
 ```
+
+Override with `SMOLCLAW_HOME=/path/to/dir` if needed.
 
 ## Models
 

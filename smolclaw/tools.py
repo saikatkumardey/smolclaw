@@ -8,14 +8,17 @@ from pathlib import Path
 import requests
 import trafilatura
 
-WORKSPACE = Path(os.getenv("WORKSPACE_DIR", "."))
+def _workspace() -> Path:
+    from . import workspace
+    return workspace.HOME
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8888")
 _BOT_TOKEN = lambda: os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 
 def shell_exec(command: str, timeout: int = 30) -> str:
     try:
-        r = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout, cwd=WORKSPACE)
+        ws = _workspace()
+        r = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout, cwd=ws if ws.exists() else None)
         return (r.stdout + r.stderr).strip() or "(no output)"
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s"
