@@ -1,0 +1,10 @@
+jobs:
+  - id: health-evening
+    cron: "0 13 * * *"
+    prompt: "Run the evening health check. Summarize today's nutrition and protein gap for Saikat."
+    deliver_to: "6066100080"
+
+  - id: hn-check
+    cron: "0 6,14 * * *"
+    prompt: "Check Hacker News top stories. Only report if something genuinely high-signal. Be brief."
+    deliver_to: "6066100080"
