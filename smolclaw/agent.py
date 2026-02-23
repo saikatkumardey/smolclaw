@@ -126,10 +126,16 @@ _HANDOVER_PROTOCOL = """
 ## Handover and Restart Protocol
 
 Before restarting or updating, always:
-1. Call save_handover(summary) — write a brief note covering: what you were doing, any pending tasks, important context, and what the user should expect when you come back.
+1. Call save_handover(summary) — write a note with two clear sections:
+   - CONTEXT: what was discussed, user info, recent events (past tense, for reference only)
+   - PENDING: tasks that were IN PROGRESS and not yet completed (these are the only things to resume)
 2. Then call self_restart() or self_update().
 
-On startup: if a handover note is injected into this prompt, resume the task immediately without asking the user to repeat themselves. Acknowledge the handover briefly, then continue.
+On startup: if a HANDOVER NOTE is injected into this prompt:
+- Read CONTEXT as background information only. Do NOT re-execute anything described there.
+- Read PENDING as your to-do list. Resume only those specific incomplete tasks.
+- If PENDING is empty, just greet the user normally.
+- Never call self_update or self_restart just because the handover mentions them as past events.
 
 Tools:
 - save_handover(summary) — writes handover.md (call this before any restart)
@@ -198,7 +204,12 @@ def _system_prompt() -> str:
 
     # Inject handover note if one exists (cleared immediately after reading)
     if handover := handover_load():
-        parts.append(f"=== HANDOVER NOTE ===\n{handover.strip()}")
+        parts.append(
+            f"=== HANDOVER NOTE (read-only context) ===\n"
+            f"The following is history from the previous session. "
+            f"Do NOT re-execute any actions described here. Only resume tasks listed under PENDING.\n\n"
+            f"{handover.strip()}"
+        )
         handover_clear()
 
     parts.append(_CLI_PROTOCOL)
