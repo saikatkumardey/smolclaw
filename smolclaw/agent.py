@@ -137,7 +137,8 @@ Tools:
 - self_update() — pulls latest code from GitHub and restarts (set SMOLCLAW_SOURCE env var to override the repo URL)
 """
 
-_ONBOARDING = """
+def _onboarding_block() -> str:
+    return f"""
 ## Onboarding Protocol
 
 If USER.md contains "Not set yet" for the user's name, you are meeting this person for the first time.
@@ -149,19 +150,38 @@ Introduce yourself warmly. Tell them you're a personal AI agent, that you don't 
 4. Any preferences (communication style, things to avoid, etc.)
 5. What name they'd like to give you
 
-Once you have enough to go on, use file_write to update:
-- USER.md — their name, how to address them, timezone, preferences, goals
-- IDENTITY.md — your new name, personality notes, their user info
-- MEMORY.md — add a "First session" note with the date and key facts
+Once you have enough to go on, write what you've learned using file_write with these exact absolute paths:
+- {workspace.USER} — their name, how to address them, timezone, preferences, goals
+- {workspace.IDENTITY} — your new name, personality notes, their user info
+- {workspace.MEMORY} — add a "First session" note with the date and key facts
 
-You don't have to ask all questions at once. Have a natural conversation. But do write what you learn before the session ends.
+You don't have to ask all questions at once. Have a natural conversation. But do write what you learn before the session ends — use the absolute paths above, not relative filenames.
 
 After onboarding is complete, you are no longer a blank slate. You have an identity and a user. Act like it.
 """
 
 
+def _workspace_context() -> str:
+    return (
+        f"## Workspace\n"
+        f"Your workspace directory: {workspace.HOME}\n"
+        f"Always use these absolute paths when writing agent data files:\n"
+        f"- SOUL.md:     {workspace.SOUL}\n"
+        f"- IDENTITY.md: {workspace.IDENTITY}\n"
+        f"- USER.md:     {workspace.USER}\n"
+        f"- MEMORY.md:   {workspace.MEMORY}\n"
+        f"- crons.yaml:  {workspace.CRONS}\n"
+        f"- skills/:     {workspace.SKILLS_DIR}/<name>/SKILL.md\n"
+        f"- tools/:      {workspace.TOOLS_DIR}/<name>.py\n"
+        f"Never use bare filenames like 'USER.md' — always the full path above."
+    )
+
+
 def _system_prompt() -> str:
-    parts = [f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}"]
+    parts = [
+        f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        _workspace_context(),
+    ]
 
     for path, name in (
         (workspace.SOUL,     "SOUL.md"),
@@ -188,7 +208,7 @@ def _system_prompt() -> str:
 
     # Inject onboarding instructions if user is not yet known
     if "Not set yet" in workspace.read(workspace.USER):
-        parts.append(_ONBOARDING)
+        parts.append(_onboarding_block())
 
     return "\n\n".join(parts)
 
