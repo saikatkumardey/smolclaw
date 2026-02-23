@@ -17,21 +17,55 @@ logger = logging.getLogger("smolclaw.agent")
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
 MAX_STEPS = 10
 
+_ONBOARDING = """
+## Onboarding Protocol
+
+If USER.md contains "Not set yet" for the user's name, you are meeting this person for the first time.
+
+Introduce yourself warmly. Tell them you're a personal AI agent, that you don't have a name yet either, and that you'd like to learn about them so you can serve them better. Then ask:
+1. What their name is and how they'd like to be addressed
+2. Their timezone
+3. What they'd like help with (goals, projects, recurring tasks)
+4. Any preferences (communication style, things to avoid, etc.)
+5. What name they'd like to give you
+
+Once you have enough to go on, use file_write to update:
+- USER.md — their name, how to address them, timezone, preferences, goals
+- IDENTITY.md — your new name, personality notes, their user info
+- MEMORY.md — add a "First session" note with the date and key facts
+
+You don't have to ask all questions at once. Have a natural conversation. But do write what you learn before the session ends.
+
+After onboarding is complete, you are no longer a blank slate. You have an identity and a user. Act like it.
+"""
+
 
 def _system_prompt() -> str:
-    parts = [f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"]
-    for fname in ("SOUL.md", "USER.md", "MEMORY.md"):
+    parts = [f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}"]
+
+    for fname in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"):
         p = Path(fname)
         if p.exists():
             parts.append(f"=== {fname} ===\n{p.read_text().strip()}")
+
     if skills := load_skills():
         parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
+
+    # Inject onboarding instructions if user is not yet known
+    user_md = Path("USER.md").read_text() if Path("USER.md").exists() else ""
+    if "Not set yet" in user_md:
+        parts.append(_ONBOARDING)
+
     return "\n\n".join(parts)
 
 
 def run(chat_id: str, user_message: str) -> str:
     history = history_load(chat_id)
-    messages = [{"role": "system", "content": _system_prompt()}, *history, {"role": "user", "content": user_message}]
+    messages = [
+        {"role": "system", "content": _system_prompt()},
+        *history,
+        {"role": "user", "content": user_message},
+    ]
     history_append(chat_id, "user", user_message)
 
     for _ in range(MAX_STEPS):

@@ -1,22 +1,21 @@
-# USER.md — About Your User
+# USER.md — About You
 
-<!-- Fill this in as you learn about the person you're helping. -->
+<!-- Filled in after onboarding. The agent writes here as it learns about you. -->
 
-## Basic info
+## Name
+Not set yet.
 
-- **Name:** <!-- e.g. Alex -->
-- **What to call them:** <!-- e.g. Sir, Boss, Alex -->
-- **Timezone:** <!-- e.g. Asia/Jakarta (UTC+7) -->
-- **Language:** <!-- e.g. English -->
+## How to address you
+Not set yet.
+
+## Timezone
+Not set yet.
 
 ## Preferences
+Not set yet.
 
-<!-- Anything the agent should always remember:
-- No emojis in responses
-- Prefers bullet points over paragraphs
-- Dietary restrictions
--->
+## Goals
+Not set yet.
 
-## Context
-
-<!-- Work, projects, goals — whatever helps the agent serve better. -->
+## Notes
+Not set yet.
