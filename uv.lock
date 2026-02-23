@@ -1565,6 +1565,7 @@ dependencies = [
     { name = "requests" },
     { name = "rich" },
     { name = "trafilatura" },
+    { name = "typer" },
 ]
 
 [package.dev-dependencies]
@@ -1582,6 +1583,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "trafilatura", specifier = ">=1.8.0" },
+    { name = "typer", specifier = ">=0.24.1" },
 ]
 
 [package.metadata.requires-dev]
