@@ -17,6 +17,22 @@ logger = logging.getLogger("smolclaw.agent")
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
 MAX_STEPS = 10
 
+_SKILLS_GUIDE = """
+## Skills System
+
+Skills live in `skills/<name>/SKILL.md`. They are loaded into your context every session.
+
+You can create new skills when the user asks. For example:
+- "Teach yourself how to check my server uptime" → create `skills/uptime/SKILL.md`
+- "Remember how to log my meals" → create `skills/meal-logger/SKILL.md`
+- "Build a skill for my morning briefing" → create `skills/morning-briefing/SKILL.md`
+
+A good SKILL.md contains: what the skill does, step-by-step instructions, example commands, and any tool invocations needed.
+
+When you create a skill, tell the user what you wrote so they can verify it.
+Skills are permanent — they persist across all future sessions.
+"""
+
 _ONBOARDING = """
 ## Onboarding Protocol
 
@@ -50,6 +66,8 @@ def _system_prompt() -> str:
 
     if skills := load_skills():
         parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
+
+    parts.append(_SKILLS_GUIDE)
 
     # Inject onboarding instructions if user is not yet known
     user_md = Path("USER.md").read_text() if Path("USER.md").exists() else ""
