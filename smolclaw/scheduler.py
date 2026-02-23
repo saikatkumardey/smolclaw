@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 import yaml
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .tools import telegram_send
@@ -15,7 +15,7 @@ logger = logging.getLogger("smolclaw.scheduler")
 DEFAULT_CHAT = os.getenv("ALLOWED_USER_IDS", "").split(",")[0]
 
 
-async def _run_job(job_id: str, prompt: str, deliver_to: str) -> None:
+def _run_job(job_id: str, prompt: str, deliver_to: str) -> None:
     from .agent import run
     logger.info("Cron: %s", job_id)
     try:
@@ -25,8 +25,8 @@ async def _run_job(job_id: str, prompt: str, deliver_to: str) -> None:
         logger.error("Cron %s failed: %s", job_id, e)
 
 
-def setup_scheduler() -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler()
+def setup_scheduler() -> BackgroundScheduler:
+    scheduler = BackgroundScheduler()
     crons_path = Path("crons.yaml")
     if not crons_path.exists():
         return scheduler
