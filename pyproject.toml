@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Self-hosted Telegram AI agent. Tool-call loop, SQLite history, 6 tools, skills, cron delivery."
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{name = "Saikat Kumar Dey", email = "deysaikatkumar@gmail.com"}]
+authors = [{name = "SmolClaw Contributors"}]
 dependencies = [
     "python-telegram-bot>=20.0",
     "litellm>=1.0.0",
