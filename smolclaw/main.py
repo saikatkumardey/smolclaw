@@ -1,6 +1,7 @@
 """CLI entrypoint. smolclaw setup | smolclaw start"""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -55,15 +56,20 @@ def start() -> None:
 
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not _allowed(update):
+            logger.warning("Rejected message from %s", update.effective_chat.id)
             return
         chat_id = str(update.effective_chat.id)
+        text = update.message.text or ""
+        logger.info("Incoming [%s]: %s", chat_id, text[:80])
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         try:
-            reply = agent_run(chat_id=chat_id, user_message=update.message.text or "")
+            # Run blocking LLM call in thread pool — don't block the event loop
+            reply = await asyncio.to_thread(agent_run, chat_id=chat_id, user_message=text)
+            logger.info("Reply [%s]: %s", chat_id, reply[:80])
             for i in range(0, max(len(reply), 1), 4000):
                 await update.message.reply_text(reply[i : i + 4000])
         except Exception as e:
-            logger.error("Error: %s", e)
+            logger.error("Error handling message: %s", e, exc_info=True)
             await update.message.reply_text(f"Error: {e}")
 
     bot = ApplicationBuilder().token(token).build()
