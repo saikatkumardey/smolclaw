@@ -71,8 +71,7 @@ All agent data lives in `~/.smolclaw/` — separate from the installed package.
 ├── smolclaw.db       ← conversation history (SQLite)
 ├── skills/           ← learned behaviors (markdown)
 ├── tools/            ← custom tools (Python)
-├── crons.yaml        ← scheduled jobs + heartbeat
-└── mcp_servers.yaml  ← MCP server connections (optional)
+└── crons.yaml        ← scheduled jobs + heartbeat
 ```
 
 Override with `SMOLCLAW_HOME=/path/to/dir` if needed.

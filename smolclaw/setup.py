@@ -63,7 +63,7 @@ def _write_env(path: Path, data: dict[str, str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def _step_header(num: int, title: str, total: int = 5) -> None:
+def _step_header(num: int, title: str, total: int = 4) -> None:
     console.print()
     console.print(Rule(
         f"[bold blue]  Step {num}/{total} — {title}  [/bold blue]",
@@ -336,112 +336,8 @@ def step_ai_model(env: dict[str, str]) -> dict[str, str]:
         _warn("No API key entered. You can set it later in ~/.smolclaw/.env")
 
     return env
-
-
-def step_mcp_servers(env: dict[str, str]) -> dict[str, str]:
-    _step_header(4, "MCP Servers (Optional)")
-
-    console.print(Panel(
-        "[bold]What are MCP servers?[/bold]\n\n"
-        "MCP (Model Context Protocol) servers give your agent access to\n"
-        "external tools: filesystems, databases, GitHub, and more.\n\n"
-        "[dim]If you don't need external tools yet, just skip this step.[/dim]",
-        border_style="blue",
-        title="[blue]About MCP[/blue]",
-        padding=(1, 2),
-    ))
-
-    from . import workspace  # noqa: PLC0415
-    mcp_path = workspace.HOME / "mcp_servers.yaml"
-
-    existing_servers: list[dict] = []
-    if mcp_path.exists():
-        try:
-            existing_data = yaml.safe_load(mcp_path.read_text()) or {}
-            existing_servers = existing_data.get("servers", [])
-            if existing_servers:
-                _info(f"Found {len(existing_servers)} existing MCP server(s):")
-                for s in existing_servers:
-                    console.print(f"    [dim]•[/dim] [cyan]{s.get('name', '?')}[/cyan]  ({s.get('type', '?')})")
-                console.print()
-        except Exception:  # noqa: BLE001
-            existing_servers = []
-
-    try:
-        add = Confirm.ask("  Add an MCP server?", default=False)
-    except KeyboardInterrupt:
-        console.print()
-        raise
-
-    if not add:
-        console.print("  [dim]Skipped MCP server configuration.[/dim]")
-        return env
-
-    servers = list(existing_servers)
-
-    while True:
-        console.print()
-        try:
-            stype = questionary.select(
-                "  MCP server type:",
-                choices=[
-                    questionary.Choice("HTTP   — URL endpoint (e.g. http://localhost:8000/mcp)", value="1"),
-                    questionary.Choice("stdio  — local command  (e.g. uvx mcp-server-filesystem)", value="2"),
-                ],
-                style=questionary.Style([
-                    ("selected", "fg:cyan bold"),
-                    ("pointer",  "fg:cyan bold"),
-                    ("question", "fg:blue bold"),
-                ]),
-            ).ask()
-            if stype is None:
-                raise KeyboardInterrupt
-            name = Prompt.ask("  Server name (e.g. filesystem)").strip()
-        except KeyboardInterrupt:
-            console.print()
-            raise
-
-        if not name:
-            _warn("Name cannot be empty, skipping.")
-        elif stype == "1":
-            try:
-                url = Prompt.ask("  Server URL (e.g. http://localhost:8000/mcp)").strip()
-            except KeyboardInterrupt:
-                console.print()
-                raise
-            servers.append({"name": name, "type": "http", "url": url})
-            _success(f"Added HTTP server: [cyan]{name}[/cyan]  →  {url}")
-        else:
-            try:
-                cmd = Prompt.ask("  Command (e.g. uvx)").strip()
-                args_raw = Prompt.ask(
-                    "  Args (space-separated, e.g. mcp-server-filesystem /path)",
-                    default="",
-                ).strip()
-            except KeyboardInterrupt:
-                console.print()
-                raise
-            args = args_raw.split() if args_raw else []
-            servers.append({"name": name, "type": "stdio", "command": cmd, "args": args})
-            _success(f"Added stdio server: [cyan]{name}[/cyan]  →  {cmd} {args_raw}")
-
-        try:
-            another = Confirm.ask("  Add another MCP server?", default=False)
-        except KeyboardInterrupt:
-            console.print()
-            raise
-        if not another:
-            break
-
-    if servers:
-        mcp_path.write_text(yaml.dump({"servers": servers}, default_flow_style=False))
-        _success(f"MCP config saved: [dim]{mcp_path}[/dim]")
-
-    return env
-
-
 def step_web_search(env: dict[str, str]) -> dict[str, str]:
-    _step_header(5, "Web Search (Optional)")
+    _step_header(4, "Web Search (Optional)")
 
     console.print(Panel(
         "[bold]Web search backend[/bold]\n\n"
@@ -591,7 +487,6 @@ def run() -> None:
         step_telegram_bot,
         step_telegram_id,
         step_ai_model,
-        step_mcp_servers,
         step_web_search,
     ]
 

@@ -69,10 +69,6 @@ I pick the right tool first time.
 | Restart | `self_restart` |
 | Pull latest and restart | `self_update` |
 
-### MCP servers
-
-If MCP servers were configured, their tools appear in my toolbox automatically. Same rules: I verify before acting, no destructive operations without confirmation.
-
 ### Safety
 
 - I never delete files or run destructive commands without explicit user approval.
