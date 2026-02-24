@@ -15,7 +15,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-console = Console(width=88, force_terminal=True, highlight=False)
+console = Console(width=100, force_terminal=True, highlight=False)
 
 # ── ANSI helpers (used for questionary-style pickers) ─────────────────────────
 CYAN   = "\033[36m"
@@ -40,9 +40,9 @@ def _render_picker(question: str, options: list[tuple[str, str, str]], selected:
     print(f"  {CYAN}?{RESET} {BOLD}{question}{RESET} {DIM}(↑↓ to navigate, Enter to confirm):{RESET}")
     for i, (_, col1, col2) in enumerate(options):
         if i == selected:
-            print(f"   {BCYAN}❯ {col1:<28}{RESET}  {CYAN}{col2}{RESET}")
+            print(f"   {BCYAN}❯ {col1:<40}{RESET}  {CYAN}{col2}{RESET}")
         else:
-            print(f"     {col1:<28}  {DIM}{col2}{RESET}")
+            print(f"     {col1:<40}  {DIM}{col2}{RESET}")
     sys.stdout.flush()
     return 1 + len(options)   # question + option lines
 
@@ -79,7 +79,7 @@ BANNER = r"""
 |____/|_| |_| |_|\___/|_|\____||_|\__,_|  \_/\_/
 """
 
-def _step_header(num: int, title: str, total: int = 5) -> None:
+def _step_header(num: int, title: str, total: int = 3) -> None:
     console.print()
     console.print(Rule(
         f"[bold blue]  Step {num}/{total} — {title}  [/bold blue]",
@@ -254,75 +254,6 @@ def step3_ai_model() -> None:
 
     _success("ANTHROPIC_API_KEY saved.")
 
-# ── Step 4: MCP servers ───────────────────────────────────────────────────────
-
-MCP_OPTIONS = [
-    ("1", "No, skip for now",       ""),
-    ("2", "Yes — stdio transport",  "local process"),
-    ("3", "Yes — HTTP/SSE server",  "remote server"),
-]
-
-def step4_mcp_servers() -> None:
-    _step_header(4, "MCP Servers (Optional)")
-
-    console.print(Panel(
-        "[bold]What are MCP servers?[/bold]\n\n"
-        "MCP (Model Context Protocol) servers give your agent access to\n"
-        "external tools: filesystems, databases, GitHub, and more.\n\n"
-        "[dim]If you don't need external tools yet, just skip this step.[/dim]",
-        border_style="blue",
-        title="[blue]About MCP[/blue]",
-        padding=(1, 2),
-    ))
-    p(0.4)
-
-    # ── Animated questionary picker ──
-    # Frame 0: pointer on "Skip"
-    n = _render_picker("Add an MCP server?", MCP_OPTIONS, 0)
-    p(0.40)
-
-    # Arrow down → stdio
-    _clear_lines(n)
-    n = _render_picker("Add an MCP server?", MCP_OPTIONS, 1)
-    p(0.30)
-
-    # Arrow up → Skip (confirmed)
-    _clear_lines(n)
-    n = _render_picker("Add an MCP server?", MCP_OPTIONS, 0)
-    p(0.35)
-
-    # Confirm — clear picker, show check-mark
-    _clear_lines(n)
-    print(f"  {CYAN}?{RESET} {BOLD}Add an MCP server?{RESET}: {BGREEN}✓ No, skip for now{RESET}")
-    sys.stdout.flush()
-    p(0.15)
-
-    console.print("  [dim]Skipped MCP server configuration.[/dim]", markup=True)
-
-# ── Step 5: Web search ────────────────────────────────────────────────────────
-
-def step5_web_search() -> None:
-    _step_header(5, "Web Search (Optional)")
-
-    console.print(Panel(
-        "[bold]Web search backend[/bold]\n\n"
-        "By default SmolClaw uses [cyan]DuckDuckGo[/cyan] (no setup required).\n\n"
-        "If you run a local [cyan]SearXNG[/cyan] instance you can point SmolClaw\n"
-        "at it for more powerful, privacy-friendly search.",
-        border_style="blue",
-        title="[blue]About Web Search[/blue]",
-        padding=(1, 2),
-    ))
-    p(0.4)
-
-    console.print("  Use local SearXNG for web search? [y/n] (n): ", markup=True, end="")
-    sys.stdout.flush()
-    p(0.5)
-    console.print("n")
-    p(0.15)
-
-    console.print("  [dim]Using DuckDuckGo (default).[/dim]", markup=True)
-
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 def print_summary() -> None:
@@ -399,10 +330,6 @@ def main() -> None:
     step2_telegram_id()
     p(0.25)
     step3_ai_model()
-    p(0.25)
-    step4_mcp_servers()
-    p(0.25)
-    step5_web_search()
     p(0.25)
 
     print_summary()
