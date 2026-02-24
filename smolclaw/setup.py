@@ -63,7 +63,7 @@ def _write_env(path: Path, data: dict[str, str]) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def _step_header(num: int, title: str, total: int = 4) -> None:
+def _step_header(num: int, title: str, total: int = 3) -> None:
     console.print()
     console.print(Rule(
         f"[bold blue]  Step {num}/{total} — {title}  [/bold blue]",
@@ -336,51 +336,6 @@ def step_ai_model(env: dict[str, str]) -> dict[str, str]:
         _warn("No API key entered. You can set it later in ~/.smolclaw/.env")
 
     return env
-def step_web_search(env: dict[str, str]) -> dict[str, str]:
-    _step_header(4, "Web Search (Optional)")
-
-    console.print(Panel(
-        "[bold]Web search backend[/bold]\n\n"
-        "By default SmolClaw uses [cyan]DuckDuckGo[/cyan] (no setup required).\n\n"
-        "If you run a local [cyan]SearXNG[/cyan] instance you can point SmolClaw\n"
-        "at it for more powerful, privacy-friendly search.",
-        border_style="blue",
-        title="[blue]About Web Search[/blue]",
-        padding=(1, 2),
-    ))
-
-    existing = env.get("SEARXNG_URL", "")
-    if existing:
-        _already("SEARXNG_URL", existing)
-        try:
-            change = Confirm.ask("  Change SearXNG URL?", default=False)
-        except KeyboardInterrupt:
-            console.print()
-            raise
-        if not change:
-            return env
-
-    try:
-        use_searx = Confirm.ask("  Use local SearXNG for web search?", default=False)
-    except KeyboardInterrupt:
-        console.print()
-        raise
-
-    if use_searx:
-        try:
-            url = Prompt.ask("  SearXNG URL", default="http://127.0.0.1:8888").strip()
-        except KeyboardInterrupt:
-            console.print()
-            raise
-        env["SEARXNG_URL"] = url
-        _success(f"SearXNG URL set: [bold green]{url}[/bold green]")
-    else:
-        console.print("  [dim]Using DuckDuckGo (default).[/dim]")
-        env.pop("SEARXNG_URL", None)
-
-    return env
-
-
 # ── Summary Panel ─────────────────────────────────────────────────────────────
 
 def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
@@ -419,7 +374,6 @@ def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
         "GROQ_API_KEY",
         "LITELLM_API_KEY",
         "OLLAMA_BASE_URL",
-        "SEARXNG_URL",
     ]
 
     shown = set()
@@ -487,7 +441,6 @@ def run() -> None:
         step_telegram_bot,
         step_telegram_id,
         step_ai_model,
-        step_web_search,
     ]
 
     completed = 0

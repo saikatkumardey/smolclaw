@@ -9,7 +9,8 @@ from pathlib import Path
 
 import requests
 from markdownify import markdownify as md
-from smolagents import Tool, PythonInterpreterTool, VisitWebpageTool, WikipediaSearchTool
+from smolagents import Tool
+from smolagents import DuckDuckGoSearchTool, PythonInterpreterTool, VisitWebpageTool, WikipediaSearchTool
 
 
 def _workspace() -> Path:
@@ -17,7 +18,6 @@ def _workspace() -> Path:
     return workspace.HOME
 
 
-SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8888")
 _BOT_TOKEN = lambda: os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 
@@ -99,31 +99,6 @@ class WebFetchTool(Tool):
             return f"Error: {e}"
 
 
-class WebSearchTool(Tool):
-    name = "web_search"
-    description = "Search the web via local SearXNG instance."
-    inputs = {
-        "query": {"type": "string", "description": "Search query"},
-        "n": {"type": "integer", "description": "Number of results (default 5)", "nullable": True},
-    }
-    output_type = "string"
-
-    def forward(self, query: str, n: int = 5) -> str:
-        try:
-            r = requests.get(
-                f"{SEARXNG_URL}/search",
-                params={"q": query, "format": "json"},
-                timeout=10,
-            )
-            results = r.json().get("results", [])[:n]
-            if not results:
-                return "No results."
-            return "\n".join(
-                f"- {x['title']}: {x['url']}\n  {x.get('content', '')[:150]}"
-                for x in results
-            )
-        except Exception as e:
-            return f"Search failed: {e}"
 
 
 class TelegramSendTool(Tool):
@@ -201,12 +176,12 @@ TOOLS_LIST: list[Tool] = [
     FileReadTool(),
     FileWriteTool(),
     WebFetchTool(),
-    WebSearchTool(),
     TelegramSendTool(),
     SaveHandoverTool(),
     SelfRestartTool(),
     SelfUpdateTool(),
     PythonInterpreterTool(),
+    DuckDuckGoSearchTool(),
     VisitWebpageTool(),
     WikipediaSearchTool(),
 ]
