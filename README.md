@@ -81,6 +81,14 @@ Override with `SMOLCLAW_HOME=/path/to/dir` if needed.
 Supports any model via LiteLLM — Anthropic, OpenAI, Groq, Ollama, and more.
 Set in `.env` as `LITELLM_MODEL=anthropic/claude-sonnet-4-6`.
 
+## Backlog
+
+Things worth building when a real use case demands them:
+
+- **Sub-agents** — smolagents' `ManagedAgent` lets the main agent delegate to specialists. Useful for parallel research + build workflows. Not needed until single-agent hits a wall.
+- **Streaming responses** — stream partial replies to Telegram instead of waiting for full completion
+- **Auto-memory trimming** — prune stale MEMORY.md entries automatically when approaching 80 lines
+
 ## License
 
 MIT
