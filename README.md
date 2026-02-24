@@ -64,17 +64,15 @@ All agent data lives in `~/.smolclaw/` — separate from the installed package.
 
 ```
 ~/.smolclaw/
-├── .env          ← your credentials (written by smolclaw setup)
-├── AGENTS.md     ← standing orders and tool guidance (edit to customize behavior)
-├── SOUL.md       ← agent personality (filled on first boot)
-├── IDENTITY.md   ← agent name and traits
-├── USER.md       ← your preferences (filled on first boot)
-├── MEMORY.md     ← long-term memory (grows over time)
-├── smolclaw.db   ← conversation history (SQLite)
-├── skills/       ← learned behaviors (markdown)
-├── tools/        ← learned tools (Python)
-├── crons.yaml    ← scheduled jobs
-└── mcp_servers.yaml ← MCP server connections (optional)
+├── .env              ← credentials (written by smolclaw setup)
+├── SOUL.md           ← personality, identity, operating instructions, heartbeat rules
+├── USER.md           ← your preferences (filled on first boot)
+├── MEMORY.md         ← long-term memory (grows over time)
+├── smolclaw.db       ← conversation history (SQLite)
+├── skills/           ← learned behaviors (markdown)
+├── tools/            ← custom tools (Python)
+├── crons.yaml        ← scheduled jobs + heartbeat
+└── mcp_servers.yaml  ← MCP server connections (optional)
 ```
 
 Override with `SMOLCLAW_HOME=/path/to/dir` if needed.
