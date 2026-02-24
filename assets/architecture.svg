@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="580" viewBox="0 0 900 580">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6c7086"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="580" fill="#1e1e2e"/>
+
+  <!-- Title -->
+  <text x="450" y="26" text-anchor="middle" fill="#cdd6f4" font-family="system-ui,sans-serif" font-size="15" font-weight="bold">smolclaw — Architecture</text>
+  <text x="450" y="42" text-anchor="middle" fill="#585b70" font-family="system-ui,sans-serif" font-size="10">feat/smolagents-migration</text>
+
+  <!-- ── Group: Entry Points ────────────────────────────────────── -->
+  <rect x="28" y="52" width="405" height="98" rx="8" fill="#94e2d5" fill-opacity="0.06" stroke="#94e2d5" stroke-opacity="0.25" stroke-width="1"/>
+  <text x="38" y="67" fill="#94e2d5" fill-opacity="0.55" font-family="system-ui,sans-serif" font-size="9" font-weight="bold" letter-spacing="1">ENTRY POINTS</text>
+
+  <!-- Telegram box -->
+  <rect x="45" y="72" width="170" height="64" rx="8" fill="#94e2d5" fill-opacity="0.14" stroke="#94e2d5" stroke-width="1.5"/>
+  <text x="130" y="98" text-anchor="middle" fill="#94e2d5" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Telegram</text>
+  <text x="130" y="116" text-anchor="middle" fill="#94e2d5" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">text, photos, commands</text>
+
+  <!-- Scheduler box -->
+  <rect x="248" y="72" width="170" height="64" rx="8" fill="#94e2d5" fill-opacity="0.14" stroke="#94e2d5" stroke-width="1.5"/>
+  <text x="333" y="98" text-anchor="middle" fill="#94e2d5" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Scheduler</text>
+  <text x="333" y="116" text-anchor="middle" fill="#94e2d5" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">crons + heartbeat</text>
+
+  <!-- ── Group: Core ────────────────────────────────────────────── -->
+  <rect x="28" y="170" width="405" height="98" rx="8" fill="#89b4fa" fill-opacity="0.06" stroke="#89b4fa" stroke-opacity="0.25" stroke-width="1"/>
+  <text x="38" y="185" fill="#89b4fa" fill-opacity="0.55" font-family="system-ui,sans-serif" font-size="9" font-weight="bold" letter-spacing="1">CORE</text>
+
+  <!-- main.py box -->
+  <rect x="45" y="190" width="170" height="64" rx="8" fill="#89b4fa" fill-opacity="0.14" stroke="#89b4fa" stroke-width="1.5"/>
+  <text x="130" y="216" text-anchor="middle" fill="#89b4fa" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">main.py</text>
+  <text x="130" y="234" text-anchor="middle" fill="#89b4fa" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">bot handler, shutdown</text>
+
+  <!-- agent.py box -->
+  <rect x="248" y="190" width="170" height="64" rx="8" fill="#89b4fa" fill-opacity="0.14" stroke="#89b4fa" stroke-width="1.5"/>
+  <text x="333" y="216" text-anchor="middle" fill="#89b4fa" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">agent.py</text>
+  <text x="333" y="234" text-anchor="middle" fill="#89b4fa" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">ToolCallingAgent</text>
+
+  <!-- ── Group: Model Layer ─────────────────────────────────────── -->
+  <rect x="460" y="130" width="415" height="118" rx="8" fill="#cba6f7" fill-opacity="0.06" stroke="#cba6f7" stroke-opacity="0.25" stroke-width="1"/>
+  <text x="470" y="145" fill="#cba6f7" fill-opacity="0.55" font-family="system-ui,sans-serif" font-size="9" font-weight="bold" letter-spacing="1">MODEL LAYER</text>
+
+  <!-- LiteLLM box -->
+  <rect x="475" y="152" width="385" height="64" rx="8" fill="#cba6f7" fill-opacity="0.14" stroke="#cba6f7" stroke-width="1.5"/>
+  <text x="667" y="178" text-anchor="middle" fill="#cba6f7" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">LiteLLM</text>
+  <text x="667" y="197" text-anchor="middle" fill="#cba6f7" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">Anthropic · OpenAI · Groq · Ollama</text>
+
+  <!-- Vision badge -->
+  <rect x="475" y="225" width="105" height="14" rx="5" fill="#cba6f7" fill-opacity="0.18" stroke="#cba6f7" stroke-opacity="0.5" stroke-width="1"/>
+  <text x="528" y="236" text-anchor="middle" fill="#cba6f7" fill-opacity="0.85" font-family="system-ui,sans-serif" font-size="9">📷 Vision (photo handler)</text>
+
+  <!-- ── Group: Tools ───────────────────────────────────────────── -->
+  <rect x="28" y="306" width="405" height="98" rx="8" fill="#a6e3a1" fill-opacity="0.06" stroke="#a6e3a1" stroke-opacity="0.25" stroke-width="1"/>
+  <text x="38" y="321" fill="#a6e3a1" fill-opacity="0.55" font-family="system-ui,sans-serif" font-size="9" font-weight="bold" letter-spacing="1">TOOLS</text>
+
+  <!-- Built-in Tools box -->
+  <rect x="45" y="326" width="170" height="64" rx="8" fill="#a6e3a1" fill-opacity="0.14" stroke="#a6e3a1" stroke-width="1.5"/>
+  <text x="130" y="352" text-anchor="middle" fill="#a6e3a1" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Built-in Tools</text>
+  <text x="130" y="370" text-anchor="middle" fill="#a6e3a1" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">shell, files, web, python</text>
+
+  <!-- Dynamic Tools box -->
+  <rect x="248" y="326" width="170" height="64" rx="8" fill="#a6e3a1" fill-opacity="0.14" stroke="#a6e3a1" stroke-width="1.5"/>
+  <text x="333" y="352" text-anchor="middle" fill="#a6e3a1" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Dynamic Tools</text>
+  <text x="333" y="370" text-anchor="middle" fill="#a6e3a1" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">tools/*.py</text>
+
+  <!-- ── Group: Workspace & Storage ────────────────────────────── -->
+  <rect x="460" y="270" width="415" height="280" rx="8" fill="#f9e2af" fill-opacity="0.06" stroke="#f9e2af" stroke-opacity="0.25" stroke-width="1"/>
+  <text x="470" y="285" fill="#f9e2af" fill-opacity="0.55" font-family="system-ui,sans-serif" font-size="9" font-weight="bold" letter-spacing="1">WORKSPACE &amp; STORAGE</text>
+
+  <!-- Workspace box -->
+  <rect x="475" y="295" width="185" height="64" rx="8" fill="#f9e2af" fill-opacity="0.14" stroke="#f9e2af" stroke-width="1.5"/>
+  <text x="567" y="321" text-anchor="middle" fill="#f9e2af" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Workspace</text>
+  <text x="567" y="339" text-anchor="middle" fill="#f9e2af" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">SOUL · USER · MEMORY</text>
+
+  <!-- Sessions box -->
+  <rect x="675" y="295" width="185" height="64" rx="8" fill="#f9e2af" fill-opacity="0.14" stroke="#f9e2af" stroke-width="1.5"/>
+  <text x="767" y="321" text-anchor="middle" fill="#f9e2af" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Sessions</text>
+  <text x="767" y="339" text-anchor="middle" fill="#f9e2af" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">JSONL per day</text>
+
+  <!-- Skills box -->
+  <rect x="475" y="390" width="385" height="64" rx="8" fill="#f9e2af" fill-opacity="0.14" stroke="#f9e2af" stroke-width="1.5"/>
+  <text x="667" y="416" text-anchor="middle" fill="#f9e2af" font-family="system-ui,sans-serif" font-size="13" font-weight="bold">Skills</text>
+  <text x="667" y="434" text-anchor="middle" fill="#f9e2af" fill-opacity="0.65" font-family="system-ui,sans-serif" font-size="10">skills/*/SKILL.md · cli-learning · tool-building · handover</text>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       ARROWS
+       ══════════════════════════════════════════════════════════════ -->
+
+  <!-- Telegram (bottom: 130,136) → main.py (top: 130,190) — straight down -->
+  <line x1="130" y1="136" x2="130" y2="187" stroke="#6c7086" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Scheduler (bottom: 333,136) → main.py top (130,190) — elbow via y=160 -->
+  <path d="M333,136 L333,160 L130,160 L130,187" fill="none" stroke="#6c7086" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- main.py (right: 215,222) → agent.py (left: 248,222) — short horizontal, label above -->
+  <line x1="215" y1="222" x2="245" y2="222" stroke="#6c7086" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="230" y="214" text-anchor="middle" fill="#6c7086" font-family="system-ui,sans-serif" font-size="8">text + photo</text>
+
+  <!-- agent.py (right: 418,210) → LiteLLM (left: 475,184) — elbow -->
+  <path d="M418,210 L446,210 L446,184 L472,184" fill="none" stroke="#6c7086" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- agent.py (bottom ~x=285: 285,254) → Built-in Tools (top: 130,326) — elbow via y=282 -->
+  <path d="M285,254 L285,282 L130,282 L130,323" fill="none" stroke="#6c7086" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- agent.py (bottom center: 333,254) → Dynamic Tools (top: 333,326) — straight down -->
+  <line x1="333" y1="254" x2="333" y2="323" stroke="#6c7086" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- agent.py (right: 418,216) → Workspace (left: 475,327) — dashed elbow, label "r/w" -->
+  <path d="M418,216 L450,216 L450,327 L472,327" fill="none" stroke="#6c7086" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+  <text x="451" y="260" text-anchor="middle" fill="#6c7086" font-family="system-ui,sans-serif" font-size="9">r/w</text>
+
+  <!-- agent.py (right: 418,228) → Sessions (left: 675,327) — dashed elbow, label "log" -->
+  <path d="M418,228 L456,228 L456,327 L672,327" fill="none" stroke="#6c7086" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+  <text x="520" y="318" text-anchor="middle" fill="#6c7086" font-family="system-ui,sans-serif" font-size="9">log</text>
+
+  <!-- agent.py (right: 418,240) → Skills (left: 475,422) — dashed elbow, label "load" -->
+  <path d="M418,240 L462,240 L462,422 L472,422" fill="none" stroke="#6c7086" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+  <text x="460" y="350" text-anchor="middle" fill="#6c7086" font-family="system-ui,sans-serif" font-size="9">load</text>
+
+  <!-- ── Legend ──────────────────────────────────────────────────── -->
+  <line x1="45" y1="484" x2="75" y2="484" stroke="#6c7086" stroke-width="1.5"/>
+  <text x="82" y="488" fill="#585b70" font-family="system-ui,sans-serif" font-size="10">messages / control</text>
+  <line x1="45" y1="500" x2="75" y2="500" stroke="#6c7086" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="82" y="504" fill="#585b70" font-family="system-ui,sans-serif" font-size="10">reads / writes</text>
+
+</svg>

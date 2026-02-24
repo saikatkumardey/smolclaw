@@ -9,10 +9,8 @@ HOME = Path(os.getenv("SMOLCLAW_HOME", Path.home() / ".smolclaw"))
 
 # Paths inside the workspace
 SOUL       = HOME / "SOUL.md"
-IDENTITY   = HOME / "IDENTITY.md"
 USER       = HOME / "USER.md"
 MEMORY     = HOME / "MEMORY.md"
-AGENTS     = HOME / "AGENTS.md"
 CRONS      = HOME / "crons.yaml"
 SKILLS_DIR = HOME / "skills"
 TOOLS_DIR  = HOME / "tools"
@@ -29,12 +27,24 @@ def init() -> None:
     SKILLS_DIR.mkdir(exist_ok=True)
     TOOLS_DIR.mkdir(exist_ok=True)
 
-    for name in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "AGENTS.md", "crons.yaml"):
+    for name in ("SOUL.md", "USER.md", "MEMORY.md", "crons.yaml"):
         dest = HOME / name
         if not dest.exists():
             src = _TEMPLATES / name
             if src.exists():
                 shutil.copy(src, dest)
+
+    # Copy skill templates
+    src_skills = _TEMPLATES / "skills"
+    if src_skills.is_dir():
+        for skill_dir in src_skills.iterdir():
+            if skill_dir.is_dir():
+                dest_skill = SKILLS_DIR / skill_dir.name
+                dest_skill.mkdir(exist_ok=True)
+                for f in skill_dir.iterdir():
+                    dest = dest_skill / f.name
+                    if not dest.exists():
+                        shutil.copy(f, dest)
 
 
 def read(path: Path, default: str = "") -> str:
