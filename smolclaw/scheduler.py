@@ -3,40 +3,57 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .tools import telegram_send
+from .tools import TelegramSendTool
+from . import workspace
+
+_telegram = TelegramSendTool()
 
 logger = logging.getLogger("smolclaw.scheduler")
 DEFAULT_CHAT = os.getenv("ALLOWED_USER_IDS", "").split(",")[0]
 
+HEARTBEAT_OK = "HEARTBEAT_OK"
 
-def _run_job(job_id: str, prompt: str, deliver_to: str) -> None:
+
+def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False) -> None:
     from .agent import run
     logger.info("Cron: %s", job_id)
     try:
         result = run(chat_id=f"cron:{job_id}", user_message=prompt)
-        telegram_send(deliver_to, result)
+        if heartbeat and result.strip() == HEARTBEAT_OK:
+            logger.debug("Heartbeat %s: silent (HEARTBEAT_OK)", job_id)
+            return
+        if deliver_to:
+            _telegram.forward(chat_id=deliver_to, message=result)
     except Exception as e:
         logger.error("Cron %s failed: %s", job_id, e)
 
 
 def setup_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
-    crons_path = Path("crons.yaml")
+    crons_path = workspace.CRONS
     if not crons_path.exists():
         return scheduler
-    for job in yaml.safe_load(crons_path.read_text()).get("jobs", []):
+
+    data = yaml.safe_load(crons_path.read_text()) or {}
+    for job in data.get("jobs", []):
+        deliver_to = job.get("deliver_to") or DEFAULT_CHAT
+        is_heartbeat = bool(job.get("heartbeat", False))
         scheduler.add_job(
             _run_job,
             CronTrigger.from_crontab(job["cron"]),
-            kwargs={"job_id": job["id"], "prompt": job["prompt"], "deliver_to": job.get("deliver_to", DEFAULT_CHAT)},
+            kwargs={
+                "job_id": job["id"],
+                "prompt": job["prompt"],
+                "deliver_to": deliver_to,
+                "heartbeat": is_heartbeat,
+            },
             id=job["id"],
             replace_existing=True,
         )
-        logger.info("Scheduled: %s (%s)", job["id"], job["cron"])
+        logger.info("Scheduled: %s (%s)%s", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
     return scheduler

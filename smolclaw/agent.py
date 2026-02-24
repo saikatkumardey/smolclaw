@@ -263,11 +263,12 @@ def _system_prompt() -> str:
     ]
 
     for path, name in (
-        (workspace.SOUL,     "SOUL.md"),
-        (workspace.IDENTITY, "IDENTITY.md"),
-        (workspace.USER,     "USER.md"),
-        (workspace.MEMORY,   "MEMORY.md"),
-        (workspace.AGENTS,   "AGENTS.md"),
+        (workspace.SOUL,      "SOUL.md"),
+        (workspace.IDENTITY,  "IDENTITY.md"),
+        (workspace.USER,      "USER.md"),
+        (workspace.MEMORY,    "MEMORY.md"),
+        (workspace.AGENTS,    "AGENTS.md"),
+        (workspace.HEARTBEAT, "HEARTBEAT.md"),
     ):
         content = workspace.read(path)
         if content:

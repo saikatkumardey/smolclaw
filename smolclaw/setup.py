@@ -610,5 +610,20 @@ def run() -> None:
         console.print()
         sys.exit(0)
 
+    # ── Patch crons.yaml: fill in deliver_to for jobs with empty deliver_to ──
+    user_id = env.get("ALLOWED_USER_IDS", "").split(",")[0].strip()
+    if user_id and workspace.CRONS.exists():
+        try:
+            crons_data = yaml.safe_load(workspace.CRONS.read_text()) or {}
+            patched = False
+            for job in crons_data.get("jobs", []):
+                if not job.get("deliver_to"):
+                    job["deliver_to"] = user_id
+                    patched = True
+            if patched:
+                workspace.CRONS.write_text(yaml.dump(crons_data, default_flow_style=False, allow_unicode=True))
+        except Exception:
+            pass  # Non-fatal — user can edit crons.yaml manually
+
     # ── Final summary ─────────────────────────────────────────────────────
     _print_summary(env, workspace.HOME)

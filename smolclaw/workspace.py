@@ -18,6 +18,7 @@ SKILLS_DIR = HOME / "skills"
 TOOLS_DIR  = HOME / "tools"
 DB         = HOME / "smolclaw.db"
 HANDOVER   = HOME / "handover.md"
+HEARTBEAT  = HOME / "HEARTBEAT.md"
 
 # Default templates shipped with the package
 _TEMPLATES = Path(__file__).parent.parent / "templates"
@@ -29,7 +30,7 @@ def init() -> None:
     SKILLS_DIR.mkdir(exist_ok=True)
     TOOLS_DIR.mkdir(exist_ok=True)
 
-    for name in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "AGENTS.md", "crons.yaml"):
+    for name in ("SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "AGENTS.md", "HEARTBEAT.md", "crons.yaml"):
         dest = HOME / name
         if not dest.exists():
             src = _TEMPLATES / name
