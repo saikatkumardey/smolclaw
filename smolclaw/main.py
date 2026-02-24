@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
+import signal
 import sys
+import tempfile
 
 import typer
 from dotenv import load_dotenv
@@ -184,6 +187,53 @@ def start() -> None:
             logger.exception("Error handling message: {}", e)
             await update.message.reply_text(f"Error: {e}")
 
+    async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle photos: download, describe via vision model, pass to agent."""
+        if not _allowed(update):
+            return
+        chat_id = str(update.effective_chat.id)
+        caption = update.message.caption or "User sent a photo."
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        try:
+            photo = update.message.photo[-1]  # highest resolution
+            file = await context.bot.get_file(photo.file_id)
+
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=str(workspace.HOME)) as tmp:
+                await file.download_to_drive(tmp.name)
+                image_path = tmp.name
+
+            # Try vision call via litellm
+            try:
+                import litellm
+                with open(image_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+
+                vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
+                resp = litellm.completion(
+                    model=vision_model,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                            {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
+                        ],
+                    }],
+                    max_tokens=300,
+                )
+                description = resp.choices[0].message.content
+                agent_msg = f"[User sent a photo: {description}]\n\n{caption}"
+            except Exception as ve:
+                logger.warning("Vision call failed: {}", ve)
+                agent_msg = f"[User sent a photo saved at {image_path}. Vision not available.]\n\n{caption}"
+
+            reply = await asyncio.to_thread(agent_run, chat_id=chat_id, user_message=agent_msg)
+            for i in range(0, max(len(reply), 1), 4000):
+                await update.message.reply_text(reply[i : i + 4000])
+        except Exception as e:
+            logger.exception("Error handling photo: {}", e)
+            await update.message.reply_text(f"Error processing photo: {e}")
+
     # ---------------------------------------------------------------------------
     # Build and run the bot (Item 8: wrap in try/except)
     # ---------------------------------------------------------------------------
@@ -196,7 +246,26 @@ def start() -> None:
         bot.add_handler(CommandHandler("reload", on_reload))
         bot.add_handler(CommandHandler("update", on_update))
         bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-        setup_scheduler().start()
+        bot.add_handler(MessageHandler(filters.PHOTO, on_photo))
+
+        scheduler = setup_scheduler()
+        scheduler.start()
+
+        # Graceful shutdown handler
+        def _shutdown(signum, frame):
+            logger.info("Shutdown signal received. Saving handover...")
+            try:
+                from .handover import save
+                save("Process shutting down. No pending tasks.")
+            except Exception:
+                pass
+            scheduler.shutdown(wait=False)
+            logger.info("SmolClaw stopped.")
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _shutdown)
+        signal.signal(signal.SIGINT, _shutdown)
+
         logger.info("SmolClaw running.")
         bot.run_polling()
     except Exception as e:
