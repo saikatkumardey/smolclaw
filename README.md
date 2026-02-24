@@ -46,7 +46,7 @@ That's it. Your agent is live on Telegram.
 
 ## What it does
 
-- Remembers you across sessions (SQLite history + MEMORY.md)
+- Remembers you across sessions (MEMORY.md)
 - Learns your name and preferences on first boot
 - Runs shell commands, reads/writes files, searches the web
 - Learns any CLI tool: point it at a GitHub repo, it installs and remembers
@@ -86,7 +86,6 @@ All agent data lives in `~/.smolclaw/` — separate from the installed package.
 ├── SOUL.md           ← personality, identity, operating instructions, heartbeat rules
 ├── USER.md           ← your preferences (filled on first boot)
 ├── MEMORY.md         ← long-term memory (grows over time)
-├── smolclaw.db       ← conversation history (SQLite)
 ├── skills/           ← learned behaviors (markdown)
 ├── tools/            ← custom tools (Python)
 └── crons.yaml        ← scheduled jobs + heartbeat
