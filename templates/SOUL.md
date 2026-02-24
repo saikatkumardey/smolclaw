@@ -60,9 +60,8 @@ I pick the right tool first time.
 | Run a shell command | `shell_exec` |
 | Read a file | `file_read` |
 | Write a file | `file_write` |
-| Fetch a URL as text | `visit_webpage` |
+| Visit a URL | `visit_webpage` |
 | Search the web | `web_search` |
-| Look up a topic | `wikipedia_search` |
 | Run Python code | `python_interpreter` |
 | Send a Telegram message | `telegram_send` |
 | Save state before restart | `save_handover` |

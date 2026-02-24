@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 import requests
-from markdownify import markdownify as md
 from smolagents import Tool
 from smolagents import DuckDuckGoSearchTool, PythonInterpreterTool, VisitWebpageTool, WikipediaSearchTool
 
@@ -81,22 +80,6 @@ class FileWriteTool(Tool):
             return f"Error: {e}"
 
 
-class WebFetchTool(Tool):
-    name = "web_fetch"
-    description = "Fetch a URL and return readable text (markdown)."
-    inputs = {
-        "url": {"type": "string", "description": "URL to fetch"},
-    }
-    output_type = "string"
-
-    def forward(self, url: str) -> str:
-        try:
-            r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-            r.raise_for_status()
-            text = md(r.text, strip=["script", "style"])
-            return text[:5000] if text else "No content extracted."
-        except Exception as e:
-            return f"Error: {e}"
 
 
 
@@ -175,7 +158,6 @@ TOOLS_LIST: list[Tool] = [
     ShellExecTool(),
     FileReadTool(),
     FileWriteTool(),
-    WebFetchTool(),
     TelegramSendTool(),
     SaveHandoverTool(),
     SelfRestartTool(),
@@ -183,5 +165,4 @@ TOOLS_LIST: list[Tool] = [
     PythonInterpreterTool(),
     DuckDuckGoSearchTool(),
     VisitWebpageTool(),
-    WikipediaSearchTool(),
 ]

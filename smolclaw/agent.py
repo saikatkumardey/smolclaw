@@ -7,7 +7,6 @@ from datetime import datetime
 from smolagents import ToolCallingAgent, LiteLLMModel
 from smolagents import Tool
 
-from .history import append as history_append
 from .skills import load_skills
 from .tool_loader import load_custom_tools
 from .tools import TOOLS_LIST
@@ -141,7 +140,6 @@ def run(chat_id: str, user_message: str) -> str:
     timestamped_message = f"[Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
 
     # Audit log — write-only
-    history_append(chat_id, "user", user_message)
 
     try:
         result = agent.run(timestamped_message, reset=False)
@@ -150,5 +148,4 @@ def run(chat_id: str, user_message: str) -> str:
         logger.exception("Agent error: {}", e)
         reply = f"Error: {e}"
 
-    history_append(chat_id, "assistant", reply)
     return reply

@@ -1838,7 +1838,6 @@ source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
     { name = "loguru" },
-    { name = "markdownify" },
     { name = "python-dotenv" },
     { name = "python-telegram-bot" },
     { name = "pyyaml" },
@@ -1847,7 +1846,6 @@ dependencies = [
     { name = "rich" },
     { name = "smolagents", extra = ["litellm", "toolkit"] },
     { name = "typer" },
-    { name = "wikipedia-api" },
 ]
 
 [package.dev-dependencies]
@@ -1859,7 +1857,6 @@ dev = [
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.10.0" },
     { name = "loguru", specifier = ">=0.7.0" },
-    { name = "markdownify", specifier = ">=0.13.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-telegram-bot", specifier = ">=20.0" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1868,7 +1865,6 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0" },
     { name = "smolagents", extras = ["litellm", "toolkit"], specifier = ">=1.0.0" },
     { name = "typer", specifier = ">=0.24.1" },
-    { name = "wikipedia-api", specifier = ">=0.7.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2060,15 +2056,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/35/a2/8e3becb46433538a3
 wheels = [
     { url = "https://files.pythonhosted.org/packages/68/5a/199c59e0a824a3db2b89c5d2dade7ab5f9624dbf6448dc291b46d5ec94d3/wcwidth-0.6.0-py3-none-any.whl", hash = "sha256:1a3a1e510b553315f8e146c54764f4fb6264ffad731b3d78088cdb1478ffbdad", size = 94189, upload-time = "2026-02-06T19:19:39.646Z" },
 ]
-
-[[package]]
-name = "wikipedia-api"
-version = "0.9.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/49/7b/8b775cf22f266086cefa762b58df0a35a4c4532de3f2f6a0b7432fd31fd1/wikipedia_api-0.9.0.tar.gz", hash = "sha256:6aabd1f9fe34f594f4d36f5af67e468b0a50d713aa9a1d102b4d996bc76dd58e", size = 20041, upload-time = "2026-01-24T21:47:08.75Z" }
 
 [[package]]
 name = "win32-setctime"
