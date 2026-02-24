@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import questionary
 import requests
 import yaml
 from dotenv import dotenv_values
@@ -255,16 +256,29 @@ def step_ai_model(env: dict[str, str]) -> dict[str, str]:
     console.print(table)
     console.print()
 
-    choices = [m[0] for m in MODELS]
-    try:
-        choice = Prompt.ask(
-            "  Choose a model",
-            choices=choices,
-            default="1",
+    q_choices = [
+        questionary.Choice(
+            title=f"{provider:<10}  {model_id:<30}  {notes}",
+            value=num,
         )
+        for num, provider, model_id, _key, _url, notes in MODELS
+    ]
+    try:
+        choice = questionary.select(
+            "Choose a model (↑↓ to navigate, Enter to confirm):",
+            choices=q_choices,
+            default=q_choices[0],
+            style=questionary.Style([
+                ("selected", "fg:cyan bold"),
+                ("pointer",  "fg:cyan bold"),
+                ("question", "fg:blue bold"),
+            ]),
+        ).ask()
     except KeyboardInterrupt:
         console.print()
         raise
+    if choice is None:
+        raise KeyboardInterrupt
 
     _, provider, model_id, key_env, key_url, _ = MODEL_BY_CHOICE[choice]
 
@@ -367,12 +381,21 @@ def step_mcp_servers(env: dict[str, str]) -> dict[str, str]:
 
     while True:
         console.print()
-        console.print("  [bold]MCP Server Type:[/bold]")
-        console.print("    [bold]1[/bold]  HTTP  (URL endpoint)")
-        console.print("    [bold]2[/bold]  stdio (local command)\n")
-
         try:
-            stype = Prompt.ask("  Type", choices=["1", "2"], default="1")
+            stype = questionary.select(
+                "  MCP server type:",
+                choices=[
+                    questionary.Choice("HTTP   — URL endpoint (e.g. http://localhost:8000/mcp)", value="1"),
+                    questionary.Choice("stdio  — local command  (e.g. uvx mcp-server-filesystem)", value="2"),
+                ],
+                style=questionary.Style([
+                    ("selected", "fg:cyan bold"),
+                    ("pointer",  "fg:cyan bold"),
+                    ("question", "fg:blue bold"),
+                ]),
+            ).ask()
+            if stype is None:
+                raise KeyboardInterrupt
             name = Prompt.ask("  Server name (e.g. filesystem)").strip()
         except KeyboardInterrupt:
             console.print()
