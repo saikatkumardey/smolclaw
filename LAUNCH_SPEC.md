@@ -79,15 +79,15 @@ What needs to happen before v1.0.0.
 
 ## Launch checklist
 
-- [ ] Fix README inaccuracies (#1)
-- [ ] Fix tests (#2)
-- [ ] Add LICENSE file (#3)
-- [ ] Verify heartbeat fallback (#4)
-- [ ] Add --version (#5)
-- [ ] Write proper test suite (#6)
-- [ ] Add GitHub Actions CI (#7)
-- [ ] Add error handling in main.py (#8)
-- [ ] Bump version to 0.2.0 (#9)
-- [ ] Add bot commands (#10)
-- [ ] Merge PR #1
-- [ ] Tag v0.2.0
+- [x] Fix README inaccuracies (#1)
+- [x] Fix tests (#2)
+- [x] Add LICENSE file (#3)
+- [x] Verify heartbeat fallback (#4)
+- [x] Add --version (#5)
+- [x] Write proper test suite (#6)
+- [x] Add GitHub Actions CI (#7)
+- [x] Add error handling in main.py (#8)
+- [x] Bump version to 0.2.0 (#9)
+- [x] Add bot commands (#10)
+- [x] Merge PR #1
+- [x] Tag v0.2.0
