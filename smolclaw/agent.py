@@ -1,11 +1,13 @@
 """smolagents ToolCallingAgent loop."""
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 from datetime import datetime
 
-from smolagents import ToolCallingAgent, LiteLLMModel
+import yaml
+from smolagents import ToolCallingAgent, LiteLLMModel, ToolCollection
 from smolagents import Tool
 
 from .history import append as history_append
@@ -21,6 +23,72 @@ MAX_STEPS = 10
 
 # One agent per chat_id, cached in memory for multi-turn
 _agents: dict[str, ToolCallingAgent] = {}
+
+# MCP context managers kept alive for the process lifetime
+_mcp_contexts: list = []
+
+
+def _load_mcp_tools() -> list[Tool]:
+    """Load tools from MCP servers listed in ~/.smolclaw/mcp_servers.yaml.
+    Connections are kept open for the process lifetime and cleaned up on exit.
+    Failures are logged but never crash the agent startup.
+    """
+    yaml_path = workspace.HOME / "mcp_servers.yaml"
+    if not yaml_path.exists():
+        return []
+
+    try:
+        data = yaml.safe_load(yaml_path.read_text())
+    except Exception as e:
+        logger.warning("Could not read mcp_servers.yaml: %s", e)
+        return []
+
+    servers = (data or {}).get("servers", [])
+    if not servers:
+        return []
+
+    try:
+        from mcp import StdioServerParameters
+    except ImportError:
+        logger.warning("mcp package not installed — skipping MCP servers. Run: uv pip install mcp")
+        return []
+
+    tools: list[Tool] = []
+    for server in servers:
+        name = server.get("name", "unknown")
+        try:
+            if server.get("type") == "stdio":
+                params = StdioServerParameters(
+                    command=server["command"],
+                    args=server.get("args", []),
+                    env=server.get("env"),
+                )
+            else:
+                params = {
+                    "url": server["url"],
+                    "transport": server.get("transport", "streamable-http"),
+                }
+
+            ctx = ToolCollection.from_mcp(params, trust_remote_code=True)
+            ctx.__enter__()
+            _mcp_contexts.append(ctx)
+            tools.extend(ctx.tools)
+            logger.info("MCP '%s': loaded %d tools", name, len(ctx.tools))
+        except Exception as e:
+            logger.warning("MCP '%s' failed to connect: %s", name, e)
+
+    return tools
+
+
+def _cleanup_mcp() -> None:
+    for ctx in _mcp_contexts:
+        try:
+            ctx.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
+atexit.register(_cleanup_mcp)
 
 
 _CLI_PROTOCOL = """
@@ -233,7 +301,10 @@ def _system_prompt() -> str:
 def _create_agent(dynamic_tools: list[Tool]) -> ToolCallingAgent:
     """Create a new ToolCallingAgent with the current system prompt and all tools."""
     model = LiteLLMModel(model_id=MODEL)
-    tools = TOOLS_LIST + dynamic_tools
+    mcp_tools = _load_mcp_tools()
+    tools = TOOLS_LIST + dynamic_tools + mcp_tools
+    if mcp_tools:
+        logger.info("Agent created with %d MCP tools from %d server(s)", len(mcp_tools), len(_mcp_contexts))
     agent = ToolCallingAgent(
         tools=tools,
         model=model,
