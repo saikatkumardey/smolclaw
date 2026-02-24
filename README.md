@@ -22,6 +22,10 @@ That's it. Your agent is live on Telegram.
 
 ---
 
+## Architecture
+
+![smolclaw architecture](assets/architecture.svg)
+
 ## What it does
 
 - Remembers you across sessions (SQLite history + MEMORY.md)
