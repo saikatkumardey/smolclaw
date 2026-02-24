@@ -1,7 +1,6 @@
 """smolagents ToolCallingAgent loop."""
 from __future__ import annotations
 
-import logging
 import os
 from datetime import datetime
 
@@ -15,7 +14,7 @@ from .tools import TOOLS_LIST
 from . import workspace
 from .handover import load as handover_load, clear as handover_clear
 
-logger = logging.getLogger("smolclaw.agent")
+from loguru import logger
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
 MAX_STEPS = 10
 
@@ -110,7 +109,7 @@ def _create_agent(dynamic_tools: list[Tool]) -> ToolCallingAgent:
 
     tools = TOOLS_LIST + dynamic_tools
     system_prompt = _system_prompt()
-    logger.info("System prompt: ~%d tokens", len(system_prompt) // 4)
+    logger.info("System prompt: ~{} tokens", len(system_prompt) // 4)
     agent = ToolCallingAgent(
         tools=tools,
         model=model,
@@ -148,7 +147,7 @@ def run(chat_id: str, user_message: str) -> str:
         result = agent.run(timestamped_message, reset=False)
         reply = str(result)
     except Exception as e:
-        logger.error("Agent error: %s", e, exc_info=True)
+        logger.exception("Agent error: {}", e)
         reply = f"Error: {e}"
 
     history_append(chat_id, "assistant", reply)

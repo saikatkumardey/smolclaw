@@ -1,7 +1,6 @@
 """APScheduler + crons.yaml."""
 from __future__ import annotations
 
-import logging
 import os
 
 import yaml
@@ -13,7 +12,7 @@ from . import workspace
 
 _telegram = TelegramSendTool()
 
-logger = logging.getLogger("smolclaw.scheduler")
+from loguru import logger
 DEFAULT_CHAT = os.getenv("ALLOWED_USER_IDS", "").split(",")[0]
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
@@ -21,16 +20,16 @@ HEARTBEAT_OK = "HEARTBEAT_OK"
 
 def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False) -> None:
     from .agent import run
-    logger.info("Cron: %s", job_id)
+    logger.info("Cron: {}", job_id)
     try:
         result = run(chat_id=f"cron:{job_id}", user_message=prompt)
         if heartbeat and result.strip() == HEARTBEAT_OK:
-            logger.debug("Heartbeat %s: silent (HEARTBEAT_OK)", job_id)
+            logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
             return
         if deliver_to:
             _telegram.forward(chat_id=deliver_to, message=result)
     except Exception as e:
-        logger.error("Cron %s failed: %s", job_id, e)
+        logger.error("Cron {} failed: {}", job_id, e)
 
 
 def setup_scheduler() -> BackgroundScheduler:
@@ -55,5 +54,5 @@ def setup_scheduler() -> BackgroundScheduler:
             id=job["id"],
             replace_existing=True,
         )
-        logger.info("Scheduled: %s (%s)%s", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
+        logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
     return scheduler

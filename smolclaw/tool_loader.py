@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import importlib.util
-import logging
 from pathlib import Path
 
 from smolagents import Tool
 
-logger = logging.getLogger("smolclaw.tool_loader")
+from loguru import logger
 
 
 def _make_tool_class(tool_name: str, tool_desc: str, inputs: dict, execute_fn) -> type:

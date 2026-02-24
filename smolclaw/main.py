@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
+import sys
 
 import typer
 from dotenv import load_dotenv
-from rich.logging import RichHandler
 
 app = typer.Typer(name="smolclaw", help="Your personal AI agent.", add_completion=False)
 
@@ -38,8 +37,9 @@ def start() -> None:
     from . import workspace
     workspace.init()
     load_dotenv(workspace.HOME / ".env")
-    logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
-    logger = logging.getLogger("smolclaw")
+    from loguru import logger
+    logger.remove()
+    logger.add(sys.stderr, level="INFO", format="<green>{time:HH:mm:ss}</green> | <level>{level:<7}</level> | <cyan>{name}</cyan> - <level>{message}</level>")
 
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token:
@@ -80,20 +80,20 @@ def start() -> None:
 
     async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not _allowed(update):
-            logger.warning("Rejected message from %s", update.effective_chat.id)
+            logger.warning("Rejected message from {}", update.effective_chat.id)
             return
         chat_id = str(update.effective_chat.id)
         text = update.message.text or ""
-        logger.info("Incoming [%s]: %s", chat_id, text[:80])
+        logger.info("Incoming [{}]: {}", chat_id, text[:80])
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         try:
             # Run blocking LLM call in thread pool — don't block the event loop
             reply = await asyncio.to_thread(agent_run, chat_id=chat_id, user_message=text)
-            logger.info("Reply [%s]: %s", chat_id, reply[:80])
+            logger.info("Reply [{}]: {}", chat_id, reply[:80])
             for i in range(0, max(len(reply), 1), 4000):
                 await update.message.reply_text(reply[i : i + 4000])
         except Exception as e:
-            logger.error("Error handling message: %s", e, exc_info=True)
+            logger.exception("Error handling message: {}", e)
             await update.message.reply_text(f"Error: {e}")
 
     bot = ApplicationBuilder().token(token).build()
