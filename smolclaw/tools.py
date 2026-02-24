@@ -166,3 +166,59 @@ TOOLS_LIST: list[Tool] = [
     DuckDuckGoSearchTool(),
     VisitWebpageTool(),
 ]
+
+# Tools that sub-agents are allowed to use (no telegram, no restart/update)
+WORKER_TOOL_NAMES = {"shell_exec", "file_read", "file_write", "python_interpreter", "web_search", "visit_webpage"}
+WORKER_TOOLS = [t for t in TOOLS_LIST if t.name in WORKER_TOOL_NAMES]
+
+
+class SpawnTaskTool(Tool):
+    name = "spawn_task"
+    description = (
+        "Run an isolated task in a separate agent. Use for long, independent, or "
+        "context-heavy work that would clutter the main conversation. The sub-agent "
+        "runs synchronously and returns a result string. It has no access to conversation "
+        "history or telegram."
+    )
+    inputs = {
+        "task": {"type": "string", "description": "Clear description of what the sub-agent should do"},
+    }
+    output_type = "string"
+
+    def forward(self, task: str) -> str:
+        import signal
+        from smolagents import ToolCallingAgent, LiteLLMModel
+
+        model_id = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
+        worker = ToolCallingAgent(
+            tools=list(WORKER_TOOLS),
+            model=LiteLLMModel(model_id=model_id),
+            max_steps=15,
+        )
+
+        # Log sub-agent start
+        from .agent import session_log
+        session_log("subagent", "system", f"SUBAGENT_START: {task[:200]}")
+
+        # Timeout wrapper
+        def _timeout_handler(signum, frame):
+            raise TimeoutError("Sub-agent timed out after 120 seconds")
+
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(120)
+        try:
+            result = str(worker.run(task))
+        except TimeoutError:
+            result = "Error: sub-agent timed out after 120 seconds"
+        except Exception as e:
+            result = f"Error: {e}"
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+
+        session_log("subagent", "system", f"SUBAGENT_RESULT: {result[:500]}")
+        return result
+
+
+# Add spawn_task to the main tools list
+TOOLS_LIST.append(SpawnTaskTool())
