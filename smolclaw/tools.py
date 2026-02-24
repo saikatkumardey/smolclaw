@@ -201,15 +201,17 @@ class SpawnTaskTool(Tool):
         session_log("subagent", "system", f"SUBAGENT_START: {task[:200]}")
 
         # Timeout wrapper
+        timeout = int(os.getenv("SMOLCLAW_SUBAGENT_TIMEOUT", "120"))
+
         def _timeout_handler(signum, frame):
-            raise TimeoutError("Sub-agent timed out after 120 seconds")
+            raise TimeoutError(f"Sub-agent timed out after {timeout} seconds")
 
         old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(120)
+        signal.alarm(timeout)
         try:
             result = str(worker.run(task))
         except TimeoutError:
-            result = "Error: sub-agent timed out after 120 seconds"
+            result = f"Error: sub-agent timed out after {timeout} seconds"
         except Exception as e:
             result = f"Error: {e}"
         finally:
