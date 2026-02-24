@@ -1,8 +1,9 @@
 """smolagents ToolCallingAgent loop."""
 from __future__ import annotations
 
+import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from smolagents import ToolCallingAgent, LiteLLMModel
 from smolagents import Tool
@@ -19,6 +20,23 @@ MAX_STEPS = 10
 
 # One agent per chat_id, cached in memory for multi-turn
 _agents: dict[str, ToolCallingAgent] = {}
+
+SESSIONS_DIR = workspace.HOME / "sessions"
+
+
+def session_log(chat_id: str, role: str, content: str) -> None:
+    """Append a line to today's session log. JSONL, one file per day."""
+    SESSIONS_DIR.mkdir(exist_ok=True)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    path = SESSIONS_DIR / f"{today}.jsonl"
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "chat_id": chat_id,
+        "role": role,
+        "content": content,
+    }
+    with open(path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 
@@ -139,7 +157,7 @@ def run(chat_id: str, user_message: str) -> str:
     # Prepend current time to the user message (keeps system prompt stable for caching)
     timestamped_message = f"[Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
 
-    # Audit log — write-only
+    session_log(chat_id, "user", user_message)
 
     try:
         result = agent.run(timestamped_message, reset=False)
@@ -148,4 +166,5 @@ def run(chat_id: str, user_message: str) -> str:
         logger.exception("Agent error: {}", e)
         reply = f"Error: {e}"
 
+    session_log(chat_id, "assistant", reply)
     return reply

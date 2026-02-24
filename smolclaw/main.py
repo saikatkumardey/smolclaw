@@ -95,7 +95,7 @@ def start() -> None:
     from telegram import Update
     from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-    from .agent import run as agent_run, _agents
+    from .agent import run as agent_run, _agents, session_log
     from .scheduler import setup_scheduler
 
     ALLOWED = set(filter(None, os.getenv("ALLOWED_USER_IDS", "").split(",")))
@@ -148,6 +148,7 @@ def start() -> None:
         if not _allowed(update):
             return
         chat_id = str(update.effective_chat.id)
+        session_log(chat_id, "system", "SESSION_RESET")
         if chat_id in _agents:
             del _agents[chat_id]
         await update.message.reply_text("Memory cleared. Starting fresh.")
