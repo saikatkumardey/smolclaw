@@ -2,6 +2,24 @@
 
 Your personal AI agent. Runs on Telegram. Self-hosted.
 
+## Philosophy
+
+SmolClaw is opinionated. These principles guide every decision.
+
+**Small is the point.** If the codebase grows past what one person can read in an afternoon, something went wrong. Every new file, dependency, and abstraction must justify its existence against deletion.
+
+**The shell is the universal API.** If `shell_exec` can do it, don't build a tool for it. Don't wrap protocols around what a CLI already handles. The agent can install any tool from a Git repo, learn it, and use it forever. That covers more ground than any plugin system.
+
+**Load what you need, not everything.** Skills exist so the agent can learn on demand. Instructions that aren't needed every turn shouldn't burn tokens every turn. Lazy beats eager.
+
+**One agent is enough.** Don't add orchestration, sub-agents, or multi-agent hierarchies until the single agent genuinely can't handle the task. Complexity is a cost, not a feature.
+
+**The user owns everything.** All data lives in `~/.smolclaw/`. No cloud dependency. No accounts. No telemetry. The user can read, edit, or delete every file the agent touches. If the agent breaks, `rm -rf ~/.smolclaw` and start over.
+
+**Fewer files, fewer problems.** Three workspace files (SOUL, USER, MEMORY) beat seven. One config (.env) beats three. Merge before you split.
+
+**Ship over plan.** A working thing today beats a perfect architecture next month. If it takes more than a day to build, it's too big. Break it down or cut scope.
+
 ![SmolClaw setup wizard](assets/setup-demo.svg)
 
 ## Quickstart
