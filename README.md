@@ -2,6 +2,8 @@
 
 Your personal AI agent. Runs on Telegram. Self-hosted.
 
+![SmolClaw setup wizard](assets/setup-demo.svg)
+
 ## Quickstart
 
 ```bash
@@ -73,7 +75,7 @@ Override with `SMOLCLAW_HOME=/path/to/dir` if needed.
 
 ## Models
 
-Supports Claude (Anthropic), Gemini (Google), GPT-4 (OpenAI).
+Supports any model via LiteLLM — Anthropic, OpenAI, Groq, Ollama, and more.
 Set in `.env` as `LITELLM_MODEL=anthropic/claude-sonnet-4-6`.
 
 ## License
