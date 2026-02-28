@@ -190,7 +190,7 @@ def start() -> None:
     """Start the Telegram bot."""
     from . import workspace
     workspace.init()
-    load_dotenv(workspace.HOME / ".env")
+    load_dotenv(workspace.HOME / ".env", override=True)
     from loguru import logger
     logger.remove()
     logger.add(
