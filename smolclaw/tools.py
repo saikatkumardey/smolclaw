@@ -25,8 +25,6 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
     """Send a file to a Telegram chat via sendDocument. Returns 'Sent.' or an error string."""
     try:
         path = Path(file_path)
-        if not path.exists():
-            return f"File not found: {file_path}"
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         with open(path, "rb") as f:
             r = requests.post(
@@ -36,6 +34,8 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
                 timeout=30,
             )
         return "Sent." if r.ok else f"Failed: {r.text}"
+    except FileNotFoundError:
+        return f"File not found: {file_path}"
     except Exception as e:
         return f"Error: {e}"
 

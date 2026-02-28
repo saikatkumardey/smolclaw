@@ -26,6 +26,9 @@ from .handover import load as handover_load, clear as handover_clear
 from loguru import logger
 
 MAX_TURNS = 10
+
+# Keeps fire-and-forget tasks alive until completion (prevents GC mid-run)
+_background_tasks: set[asyncio.Task] = set()
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # Available Claude models: (model_id, display_label)
@@ -197,7 +200,9 @@ def _make_spawn_task_tool(chat_id: str):
                 result = f"Task failed: {e}"
             await asyncio.to_thread(_send_telegram, chat_id, result)
 
-        asyncio.create_task(_run())
+        task = asyncio.create_task(_run())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
         return {"content": [{"type": "text", "text": "Task started in the background. I'll message you when it's done."}]}
 
     return spawn_task

@@ -8,25 +8,31 @@ import re
 import signal
 import sys
 import tempfile
+from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
 
 
+_SAFE_MIME_EXTS = {"jpeg", "jpg", "png", "gif", "webp"}
+
 async def _vision_describe(image_path: str, mime_ext: str, caption: str) -> str | None:
     """Return a vision description of an image, or None if unavailable (no API key or error)."""
     if not os.getenv("ANTHROPIC_API_KEY"):
         return None
+    safe_ext = mime_ext.split(";")[0].strip().lower()
+    if safe_ext not in _SAFE_MIME_EXTS:
+        safe_ext = "jpeg"
     try:
         import litellm
-        with open(image_path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode()
+        raw = await asyncio.to_thread(Path(image_path).read_bytes)
+        b64 = base64.b64encode(raw).decode()
         vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
         resp = await asyncio.to_thread(
             litellm.completion,
             model=vision_model,
             messages=[{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/{mime_ext};base64,{b64}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/{safe_ext};base64,{b64}"}},
                 {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
             ]}],
             max_tokens=300,
@@ -35,6 +41,17 @@ async def _vision_describe(image_path: str, mime_ext: str, caption: str) -> str 
     except Exception as e:
         logger.warning("Vision call failed: {}", e)
         return None
+
+
+async def _reply_chunked(message, text: str) -> None:
+    """Send text in ≤4000-char chunks with Markdown, falling back to plain text."""
+    formatted = _to_telegram_md(text)
+    for i in range(0, max(len(formatted), 1), 4000):
+        chunk = formatted[i : i + 4000]
+        try:
+            await message.reply_text(chunk, parse_mode="Markdown")
+        except Exception:
+            await message.reply_text(chunk)
 
 
 def _to_telegram_md(text: str) -> str:
@@ -392,13 +409,7 @@ def start() -> None:
         try:
             reply = await agent_run(chat_id=chat_id, user_message=text)
             logger.info("Reply [{}]: {}", chat_id, reply[:80])
-            formatted = _to_telegram_md(reply)
-            for i in range(0, max(len(formatted), 1), 4000):
-                chunk = formatted[i : i + 4000]
-                try:
-                    await update.message.reply_text(chunk, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(chunk)
+            await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling message: {}", e)
             await update.message.reply_text(f"Error: {e}")
@@ -414,27 +425,22 @@ def start() -> None:
 
         try:
             file = await context.bot.get_file(doc.file_id)
-            dest = workspace.UPLOADS_DIR / doc.file_name
+            safe_name = Path(doc.file_name).name  # strip any directory components
+            dest = workspace.UPLOADS_DIR / safe_name
             await file.download_to_drive(str(dest))
 
             mime = doc.mime_type or ""
             if mime.startswith("image/"):
                 description = await _vision_describe(str(dest), mime.split("/")[-1], caption)
                 if description:
-                    agent_msg = f"[User sent image '{doc.file_name}': {description}. Saved to: {dest}]\n\n{caption}"
+                    agent_msg = f"[User sent image '{safe_name}': {description}. Saved to: {dest}]\n\n{caption}"
                 else:
-                    agent_msg = f"[User sent image '{doc.file_name}'. Saved to: {dest}]\n\n{caption}"
+                    agent_msg = f"[User sent image '{safe_name}'. Saved to: {dest}]\n\n{caption}"
             else:
-                agent_msg = f"[User sent file '{doc.file_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
+                agent_msg = f"[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
 
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-            formatted = _to_telegram_md(reply)
-            for i in range(0, max(len(formatted), 1), 4000):
-                chunk = formatted[i : i + 4000]
-                try:
-                    await update.message.reply_text(chunk, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(chunk)
+            await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling document: {}", e)
             await update.message.reply_text(f"Error processing file: {e}")
@@ -463,13 +469,7 @@ def start() -> None:
                 agent_msg = f"[User sent a photo. Saved to: {image_path}]\n\n{caption}"
 
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-            formatted = _to_telegram_md(reply)
-            for i in range(0, max(len(formatted), 1), 4000):
-                chunk = formatted[i : i + 4000]
-                try:
-                    await update.message.reply_text(chunk, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(chunk)
+            await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling photo: {}", e)
             await update.message.reply_text(f"Error processing photo: {e}")

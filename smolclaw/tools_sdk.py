@@ -47,9 +47,9 @@ async def self_update(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
-@tool("telegram_send_file", "Send a local file (markdown, CSV, script, image, etc.) to the user via Telegram.", {"file_path": str})
+@tool("telegram_send_file", "Send a local file (markdown, CSV, script, image, etc.) to a Telegram chat_id.", {"chat_id": str, "file_path": str})
 async def telegram_send_file(args: dict) -> dict:
-    text = await asyncio.to_thread(_send_telegram_file, args["file_path"])
+    text = await asyncio.to_thread(_send_telegram_file, args["chat_id"], args["file_path"])
     return {"content": [{"type": "text", "text": text}]}
 
 
