@@ -25,8 +25,14 @@ async def save_handover(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "Handover saved."}]}
 
 
+def _default_chat_id() -> str:
+    return os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
+
+
 @tool("self_restart", "Restart the smolclaw process in-place. Always call save_handover first.", {})
 async def self_restart(args: dict) -> dict:
+    if chat_id := _default_chat_id():
+        await asyncio.to_thread(_send_telegram, chat_id, "Restarting…")
     exe = shutil.which("smolclaw") or sys.argv[0]
     argv = [exe] + sys.argv[1:] if sys.argv[1:] else [exe, "start"]
     os.execv(exe, argv)
@@ -40,8 +46,14 @@ async def self_update(args: dict) -> dict:
         ["uv", "tool", "install", "--upgrade", source],
         capture_output=True, text=True, timeout=120,
     )
+    chat_id = _default_chat_id()
     if result.returncode != 0:
-        return {"content": [{"type": "text", "text": f"Update failed:\n{result.stderr}"}]}
+        msg = f"Update failed:\n{result.stderr}"
+        if chat_id:
+            await asyncio.to_thread(_send_telegram, chat_id, msg)
+        return {"content": [{"type": "text", "text": msg}]}
+    if chat_id:
+        await asyncio.to_thread(_send_telegram, chat_id, "✓ Update successful. Restarting…")
     exe = shutil.which("smolclaw") or sys.argv[0]
     os.execv(exe, [exe, "start"])
     return {"content": [{"type": "text", "text": "unreachable"}]}
