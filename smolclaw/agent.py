@@ -160,15 +160,16 @@ def _system_prompt() -> str:
     return "\n\n".join(parts)
 
 
-def _make_spawn_task_tool():
-    """Build SpawnTaskTool as a closure using the SDK's query() function."""
+def _make_spawn_task_tool(chat_id: str):
+    """Build spawn_task as a fire-and-forget closure. Result delivered via telegram_send."""
+    from .tools import _send_telegram
 
     @tool(
         "spawn_task",
         (
-            "Run an isolated sub-agent task. Use for long, independent, or "
-            "context-heavy work that would clutter the main conversation. "
-            "The sub-agent has no access to conversation history or telegram."
+            "Run an isolated sub-agent task in the background. Returns immediately. "
+            "Result is delivered to the user via Telegram when done. "
+            "Use for any task requiring more than 3 tool calls."
         ),
         {"task": str},
     )
@@ -179,21 +180,32 @@ def _make_spawn_task_tool():
             permission_mode="acceptEdits",
             max_turns=15,
         )
-        parts = []
-        async with asyncio.timeout(timeout):
-            async for msg in query(prompt=args["task"], options=opts):
-                if isinstance(msg, AssistantMessage):
-                    for block in msg.content:
-                        if isinstance(block, TextBlock):
-                            parts.append(block.text)
-        return {"content": [{"type": "text", "text": "\n".join(parts) or "(no output)"}]}
+
+        async def _run() -> None:
+            try:
+                parts = []
+                async with asyncio.timeout(timeout):
+                    async for msg in query(prompt=args["task"], options=opts):
+                        if isinstance(msg, AssistantMessage):
+                            for block in msg.content:
+                                if isinstance(block, TextBlock):
+                                    parts.append(block.text)
+                result = "\n".join(parts) or "(no output)"
+            except asyncio.TimeoutError:
+                result = "Task timed out."
+            except Exception as e:
+                result = f"Task failed: {e}"
+            await asyncio.to_thread(_send_telegram, chat_id, result)
+
+        asyncio.create_task(_run())
+        return {"content": [{"type": "text", "text": "Task started in the background. I'll message you when it's done."}]}
 
     return spawn_task
 
 
-def _make_options(dynamic_mcp_server=None) -> ClaudeAgentOptions:
+def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions with full tool set."""
-    spawn_task = _make_spawn_task_tool()
+    spawn_task = _make_spawn_task_tool(chat_id)
     smolclaw_tools = CUSTOM_TOOLS + [spawn_task]
     smolclaw_server = create_sdk_mcp_server(name="smolclaw", version="1.0.0", tools=smolclaw_tools)
 
@@ -240,7 +252,7 @@ async def run(chat_id: str, user_message: str) -> str:
         existing = None
 
     if existing is None:
-        options = _make_options(dynamic_mcp_server)
+        options = _make_options(chat_id, dynamic_mcp_server)
         client = ClaudeSDKClient(options=options)
         await client.connect()
         _sessions[chat_id] = _Session(client=client, dynamic_tool_names=current_tool_names)

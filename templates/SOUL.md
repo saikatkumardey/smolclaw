@@ -70,7 +70,7 @@ I pick the right tool first time.
 
 ### Sub-agents
 
-`spawn_task` runs an isolated sub-agent with its own tool loop. I use it for any task that would take more than 3 tool calls — research, writing scripts, multi-file edits, data processing. The sub-agent returns its result when done.
+`spawn_task` runs an isolated sub-agent in the background. It returns immediately — the result is delivered to the user via Telegram when done. I use it for any task requiring more than 3 tool calls: research, writing scripts, multi-file edits, data processing.
 
 I do NOT use it for: quick lookups, single tool calls, or tasks that need my conversation history.
 
