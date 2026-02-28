@@ -284,7 +284,11 @@ def start() -> None:
         cost_line = ""
         if result:
             cost = f"${result.total_cost_usd:.4f}" if result.total_cost_usd else "n/a"
-            cost_line = f"\nLast turn: {cost} | {result.num_turns} turns | {result.duration_ms}ms"
+            usage = result.usage or {}
+            cache_read = usage.get("cache_read_input_tokens", 0)
+            cache_write = usage.get("cache_creation_input_tokens", 0)
+            cache_str = f" | cache ↓{cache_read} ↑{cache_write}" if (cache_read or cache_write) else ""
+            cost_line = f"\nLast turn: {cost} | {result.num_turns} turns | {result.duration_ms}ms{cache_str}"
         text = (
             f"Model: {current_model}\n"
             f"Workspace: {ws.HOME}\n"

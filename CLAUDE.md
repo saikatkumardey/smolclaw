@@ -21,8 +21,6 @@ smolclaw update        # pull latest from GitHub and reinstall
 uv run pytest
 uv run pytest tests/test_agent.py::test_run_returns_string   # single test
 
-# Regenerate demo SVG
-uv tool run termstage render demo.yaml --animated --output assets/setup-demo.svg
 ```
 
 ## Architecture
