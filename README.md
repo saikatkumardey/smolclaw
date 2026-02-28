@@ -200,7 +200,6 @@ Messages are kept per `chat_id` for multi-turn context. Custom tools drop in as 
 | `TELEGRAM_BOT_TOKEN` | — | Required. Set by `smolclaw setup`. |
 | `ALLOWED_USER_IDS` | (all) | Your Telegram user ID. Set by `smolclaw setup`. |
 | `ANTHROPIC_API_KEY` | — | API key auth. Set by `smolclaw setup-token`. |
-| `LITELLM_MODEL` | `anthropic/claude-sonnet-4-6` | Vision model for photo messages only. |
 | `SMOLCLAW_HOME` | `~/.smolclaw` | Override workspace directory. |
 | `SMOLCLAW_SOURCE` | GitHub URL | Source repo for `self_update`. |
 | `SMOLCLAW_SUBAGENT_TIMEOUT` | `120` | Sub-agent timeout in seconds. |

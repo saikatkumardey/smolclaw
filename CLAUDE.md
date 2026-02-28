@@ -89,7 +89,6 @@ All handlers guard with `_allowed(update)` — non-allowlisted users get no resp
 | `TELEGRAM_BOT_TOKEN` | — | Required. Set by `smolclaw setup`. |
 | `ALLOWED_USER_IDS` | — | Required. Comma-separated Telegram chat IDs. Set by `smolclaw setup`. Bot refuses to start if unset. |
 | `SMOLCLAW_MODEL` | `claude-sonnet-4-6` | Active Claude model. Persisted to `.env` by `/models` command. |
-| `LITELLM_MODEL` | `anthropic/claude-sonnet-4-6` | Vision model for photo messages only. |
 | `SMOLCLAW_HOME` | `~/.smolclaw` | Workspace directory. |
 | `SMOLCLAW_SOURCE` | GitHub URL | Source repo for `self_update`. |
 | `SMOLCLAW_SUBAGENT_TIMEOUT` | `120` | Sub-agent timeout in seconds. |
@@ -104,4 +103,4 @@ All handlers guard with `_allowed(update)` — non-allowlisted users get no resp
 - `Bash` runs commands with `cwd=~/.smolclaw/` by default (set via `ClaudeAgentOptions.cwd`).
 - Heartbeat jobs check `HEARTBEAT_OK in result` (substring, not exact match) to suppress forwarding the reply to Telegram.
 - Reply text is passed through `_to_telegram_md()` before sending: converts `**bold**` → `*bold*` and `## headings` → `*heading*`. Falls back to plain text if Telegram rejects the parse.
-- Photo messages: `litellm.completion()` runs in `asyncio.to_thread` to avoid blocking the event loop. Temp files are deleted in a `finally` block.
+- Photo/document messages: file saved to `~/.smolclaw/uploads/`, path passed to agent. Agent uses native Claude vision via `Read` tool.

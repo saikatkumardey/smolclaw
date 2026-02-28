@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import os
 import re
 import signal
@@ -13,34 +12,6 @@ from pathlib import Path
 import typer
 from dotenv import load_dotenv
 
-
-_SAFE_MIME_EXTS = {"jpeg", "jpg", "png", "gif", "webp"}
-
-async def _vision_describe(image_path: str, mime_ext: str, caption: str) -> str | None:
-    """Return a vision description of an image, or None if unavailable (no API key or error)."""
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        return None
-    safe_ext = mime_ext.split(";")[0].strip().lower()
-    if safe_ext not in _SAFE_MIME_EXTS:
-        safe_ext = "jpeg"
-    try:
-        import litellm
-        raw = await asyncio.to_thread(Path(image_path).read_bytes)
-        b64 = base64.b64encode(raw).decode()
-        vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
-        resp = await asyncio.to_thread(
-            litellm.completion,
-            model=vision_model,
-            messages=[{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/{safe_ext};base64,{b64}"}},
-                {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
-            ]}],
-            max_tokens=300,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        logger.warning("Vision call failed: {}", e)
-        return None
 
 
 async def _reply_chunked(message, text: str) -> None:
@@ -429,15 +400,8 @@ def start() -> None:
             dest = workspace.UPLOADS_DIR / safe_name
             await file.download_to_drive(str(dest))
 
-            mime = doc.mime_type or ""
-            if mime.startswith("image/"):
-                description = await _vision_describe(str(dest), mime.split("/")[-1], caption)
-                if description:
-                    agent_msg = f"[User sent image '{safe_name}': {description}. Saved to: {dest}]\n\n{caption}"
-                else:
-                    agent_msg = f"[User sent image '{safe_name}'. Saved to: {dest}]\n\n{caption}"
-            else:
-                agent_msg = f"[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
+            mime = doc.mime_type or "application/octet-stream"
+            agent_msg = f"[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
 
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
             await _reply_chunked(update.message, reply)
@@ -446,39 +410,23 @@ def start() -> None:
             await update.message.reply_text(f"Error processing file: {e}")
 
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Handle photos: download, describe via vision model, pass to agent."""
+        """Handle photos: save to uploads/, pass path to agent for native vision."""
         if not _allowed(update):
             return
         chat_id = str(update.effective_chat.id)
-        caption = update.message.caption or "User sent a photo."
+        caption = update.message.caption or ""
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-
-        image_path = None
         try:
             photo = update.message.photo[-1]  # highest resolution
             file = await context.bot.get_file(photo.file_id)
-
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, dir=str(workspace.HOME)) as tmp:
-                await file.download_to_drive(tmp.name)
-                image_path = tmp.name
-
-            description = await _vision_describe(image_path, "jpeg", caption)
-            if description:
-                agent_msg = f"[User sent a photo: {description}]\n\n{caption}"
-            else:
-                agent_msg = f"[User sent a photo. Saved to: {image_path}]\n\n{caption}"
-
+            dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
+            await file.download_to_drive(str(dest))
+            agent_msg = f"[User sent a photo. Saved to: {dest}]\n\n{caption}"
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
             await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling photo: {}", e)
             await update.message.reply_text(f"Error processing photo: {e}")
-        finally:
-            if image_path:
-                try:
-                    os.unlink(image_path)
-                except OSError:
-                    pass
 
     # ---------------------------------------------------------------------------
     # Build and run the bot
