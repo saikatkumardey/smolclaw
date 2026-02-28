@@ -149,15 +149,16 @@ def _workspace_context() -> str:
 
 
 def _system_prompt() -> str:
-    parts = [
-        _workspace_context(),
-    ]
+    # Order is deliberately stable-first for prompt caching:
+    # workspace context (static) → SOUL (rarely changes) → USER (rarely changes)
+    # → skills (infrequently changes) → MEMORY (frequently changes)
+    # → handover/onboarding (ephemeral, always last)
+    parts = [_workspace_context()]
 
     user_content = ""
     for path, name in (
-        (workspace.SOUL,   "SOUL.md"),
-        (workspace.USER,   "USER.md"),
-        (workspace.MEMORY, "MEMORY.md"),
+        (workspace.SOUL, "SOUL.md"),
+        (workspace.USER, "USER.md"),
     ):
         content = workspace.read(path)
         if path == workspace.USER:
@@ -167,6 +168,9 @@ def _system_prompt() -> str:
 
     if skills := load_skills(workspace.SKILLS_DIR):
         parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
+
+    if memory := workspace.read(workspace.MEMORY):
+        parts.append(f"=== MEMORY.md ===\n{memory.strip()}")
 
     # Inject handover note if one exists (cleared immediately after reading)
     if handover := handover_load():
@@ -315,10 +319,13 @@ async def run(
                             await on_partial(partial_text)
             elif isinstance(msg, ResultMessage):
                 _sessions[chat_id].last_result = msg
+                usage = msg.usage or {}
                 session_log(chat_id, "result", {
                     "cost_usd": msg.total_cost_usd,
                     "turns": msg.num_turns,
                     "duration_ms": msg.duration_ms,
+                    "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+                    "cache_write_tokens": usage.get("cache_creation_input_tokens", 0),
                 })
         reply = "\n".join(parts) or "(no response)"
     except Exception as e:
