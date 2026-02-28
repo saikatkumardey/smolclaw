@@ -222,6 +222,8 @@ def start() -> None:
     from .agent import (
         run as agent_run,
         reset_session,
+        interrupt_session,
+        get_last_result,
         session_log,
         AVAILABLE_MODELS,
         get_current_model,
@@ -278,6 +280,11 @@ def start() -> None:
         except FileNotFoundError:
             memory_lines = 0
         current_model = get_current_model()
+        result = get_last_result(str(update.effective_chat.id))
+        cost_line = ""
+        if result:
+            cost = f"${result.total_cost_usd:.4f}" if result.total_cost_usd else "n/a"
+            cost_line = f"\nLast turn: {cost} | {result.num_turns} turns | {result.duration_ms}ms"
         text = (
             f"Model: {current_model}\n"
             f"Workspace: {ws.HOME}\n"
@@ -286,6 +293,7 @@ def start() -> None:
             f"Dynamic tools: {len(dynamic_tools)}\n"
             f"Skills: {skill_count}\n"
             f"Memory: {memory_lines} lines"
+            f"{cost_line}"
         )
         await update.message.reply_text(text)
 
@@ -296,6 +304,13 @@ def start() -> None:
         session_log(chat_id, "system", "SESSION_RESET")
         await reset_session(chat_id)
         await update.message.reply_text("Memory cleared. Starting fresh.")
+
+    async def on_cancel(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _allowed(update):
+            return
+        chat_id = str(update.effective_chat.id)
+        interrupted = await interrupt_session(chat_id)
+        await update.message.reply_text("Cancelled." if interrupted else "Nothing to cancel.")
 
     async def on_reload(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         if not _allowed(update):
@@ -377,9 +392,35 @@ def start() -> None:
         logger.info("Incoming [{}]: {}", chat_id, text[:80])
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         try:
-            reply = await agent_run(chat_id=chat_id, user_message=text)
+            # Send a placeholder; edit it in-place as partial text arrives
+            sent = await update.message.reply_text("…")
+            last_edit: list[float] = [0.0]  # mutable for closure
+
+            async def on_partial(partial: str) -> None:
+                now = asyncio.get_event_loop().time()
+                if now - last_edit[0] < 1.5:
+                    return
+                last_edit[0] = now
+                try:
+                    await sent.edit_text(_to_telegram_md(partial[:4000]), parse_mode="Markdown")
+                except Exception:
+                    pass
+
+            reply = await agent_run(chat_id=chat_id, user_message=text, on_partial=on_partial)
             logger.info("Reply [{}]: {}", chat_id, reply[:80])
-            await _reply_chunked(update.message, reply)
+            # Final edit of first chunk, then reply for overflow
+            formatted = _to_telegram_md(reply)
+            first, rest = formatted[:4000], formatted[4000:]
+            try:
+                await sent.edit_text(first, parse_mode="Markdown")
+            except Exception:
+                await sent.edit_text(first)
+            for i in range(0, len(rest), 4000):
+                chunk = rest[i : i + 4000]
+                try:
+                    await update.message.reply_text(chunk, parse_mode="Markdown")
+                except Exception:
+                    await update.message.reply_text(chunk)
         except Exception as e:
             logger.exception("Error handling message: {}", e)
             await update.message.reply_text(f"Error: {e}")
@@ -438,6 +479,7 @@ def start() -> None:
         bot.add_handler(CommandHandler("model", on_model))
         bot.add_handler(CommandHandler("models", on_models))
         bot.add_handler(CommandHandler("reset", on_reset))
+        bot.add_handler(CommandHandler("cancel", on_cancel))
         bot.add_handler(CommandHandler("reload", on_reload))
         bot.add_handler(CommandHandler("restart", on_restart))
         bot.add_handler(CommandHandler("update", on_update))
@@ -455,6 +497,7 @@ def start() -> None:
             BotCommand("model",   "Show current Claude model"),
             BotCommand("models",  "Switch Claude model"),
             BotCommand("reset",   "Clear conversation history"),
+            BotCommand("cancel",  "Cancel the current running task"),
             BotCommand("reload",  "Reload skills and memory"),
             BotCommand("restart", "Restart the bot process"),
         ]))

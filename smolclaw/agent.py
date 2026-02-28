@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections.abc import Callable, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -11,11 +12,13 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
+    ResultMessage,
     TextBlock,
     query,
     create_sdk_mcp_server,
     tool,
 )
+from claude_agent_sdk.types import StreamEvent
 
 from .skills import load_skills
 from .tool_loader import load_custom_tools
@@ -59,6 +62,7 @@ async def set_model(model_id: str) -> None:
 class _Session:
     client: ClaudeSDKClient
     dynamic_tool_names: frozenset[str] = field(default_factory=frozenset)
+    last_result: ResultMessage | None = None
 
 
 # One session per chat_id, cached in memory for multi-turn
@@ -71,6 +75,24 @@ async def reset_session(chat_id: str) -> None:
     """Disconnect and remove the cached session for chat_id."""
     if session := _sessions.pop(chat_id, None):
         await session.client.disconnect()
+
+
+async def interrupt_session(chat_id: str) -> bool:
+    """Interrupt the active turn for chat_id. Returns True if signal was sent."""
+    if session := _sessions.get(chat_id):
+        try:
+            await session.client.interrupt()
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def get_last_result(chat_id: str) -> ResultMessage | None:
+    """Return the ResultMessage from the most recent turn, if any."""
+    if session := _sessions.get(chat_id):
+        return session.last_result
+    return None
 
 
 def session_log(chat_id: str, role: str, content: str) -> None:
@@ -235,10 +257,15 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         permission_mode="acceptEdits",
         cwd=str(workspace.HOME),
         max_turns=MAX_TURNS,
+        include_partial_messages=True,
     )
 
 
-async def run(chat_id: str, user_message: str) -> str:
+async def run(
+    chat_id: str,
+    user_message: str,
+    on_partial: Callable[[str], Awaitable[None]] | None = None,
+) -> str:
     """Run one turn of conversation. Multi-turn via cached client per chat_id."""
     # Load dynamic tools on every call (no restart needed when new tools added)
     dynamic_tools = load_custom_tools()
@@ -271,12 +298,28 @@ async def run(chat_id: str, user_message: str) -> str:
 
     try:
         await client.query(timestamped_message)
-        parts = []
+        parts: list[str] = []
+        partial_text = ""
         async for msg in client.receive_response():
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         parts.append(block.text)
+            elif isinstance(msg, StreamEvent):
+                ev = msg.event
+                if ev.get("type") == "content_block_delta":
+                    delta = ev.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        partial_text += delta.get("text", "")
+                        if on_partial and partial_text:
+                            await on_partial(partial_text)
+            elif isinstance(msg, ResultMessage):
+                _sessions[chat_id].last_result = msg
+                session_log(chat_id, "result", {
+                    "cost_usd": msg.total_cost_usd,
+                    "turns": msg.num_turns,
+                    "duration_ms": msg.duration_ms,
+                })
         reply = "\n".join(parts) or "(no response)"
     except Exception as e:
         logger.exception("Agent error: {}", e)
