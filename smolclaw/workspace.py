@@ -12,8 +12,9 @@ SOUL       = HOME / "SOUL.md"
 USER       = HOME / "USER.md"
 MEMORY     = HOME / "MEMORY.md"
 CRONS      = HOME / "crons.yaml"
-SKILLS_DIR = HOME / "skills"
-TOOLS_DIR  = HOME / "tools"
+SKILLS_DIR   = HOME / "skills"
+TOOLS_DIR    = HOME / "tools"
+UPLOADS_DIR  = HOME / "uploads"
 DB         = HOME / "smolclaw.db"
 HANDOVER   = HOME / "handover.md"
 
@@ -26,6 +27,7 @@ def init() -> None:
     HOME.mkdir(parents=True, exist_ok=True)
     SKILLS_DIR.mkdir(exist_ok=True)
     TOOLS_DIR.mkdir(exist_ok=True)
+    UPLOADS_DIR.mkdir(exist_ok=True)
     (HOME / "sessions").mkdir(exist_ok=True)
 
     for name in ("SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml"):

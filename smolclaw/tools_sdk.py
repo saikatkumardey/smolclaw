@@ -9,7 +9,7 @@ import sys
 
 from claude_agent_sdk import tool
 
-from .tools import _send_telegram
+from .tools import _send_telegram, _send_telegram_file
 
 
 @tool("telegram_send", "Send a Telegram message to a chat_id. For cron delivery.", {"chat_id": str, "message": str})
@@ -47,4 +47,10 @@ async def self_update(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
-CUSTOM_TOOLS = [telegram_send, save_handover, self_restart, self_update]
+@tool("telegram_send_file", "Send a local file (markdown, CSV, script, image, etc.) to the user via Telegram.", {"file_path": str})
+async def telegram_send_file(args: dict) -> dict:
+    text = await asyncio.to_thread(_send_telegram_file, args["file_path"])
+    return {"content": [{"type": "text", "text": text}]}
+
+
+CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update]

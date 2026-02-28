@@ -379,6 +379,57 @@ def start() -> None:
             logger.exception("Error handling message: {}", e)
             await update.message.reply_text(f"Error: {e}")
 
+    async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle documents: download to uploads/, pass path to agent. Vision for images."""
+        if not _allowed(update):
+            return
+        chat_id = str(update.effective_chat.id)
+        doc = update.message.document
+        caption = update.message.caption or ""
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
+        try:
+            file = await context.bot.get_file(doc.file_id)
+            dest = workspace.UPLOADS_DIR / doc.file_name
+            await file.download_to_drive(str(dest))
+
+            mime = doc.mime_type or ""
+            if mime.startswith("image/"):
+                try:
+                    import litellm
+                    with open(dest, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode()
+                    ext = mime.split("/")[-1]
+                    vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
+                    resp = await asyncio.to_thread(
+                        litellm.completion,
+                        model=vision_model,
+                        messages=[{"role": "user", "content": [
+                            {"type": "image_url", "image_url": {"url": f"data:image/{ext};base64,{b64}"}},
+                            {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
+                        ]}],
+                        max_tokens=300,
+                    )
+                    description = resp.choices[0].message.content
+                    agent_msg = f"[User sent image '{doc.file_name}': {description}. Saved to: {dest}]\n\n{caption}"
+                except Exception as ve:
+                    logger.warning("Vision call failed: {}", ve)
+                    agent_msg = f"[User sent image '{doc.file_name}'. Saved to: {dest}]\n\n{caption}"
+            else:
+                agent_msg = f"[User sent file '{doc.file_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
+
+            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
+            formatted = _to_telegram_md(reply)
+            for i in range(0, max(len(formatted), 1), 4000):
+                chunk = formatted[i : i + 4000]
+                try:
+                    await update.message.reply_text(chunk, parse_mode="Markdown")
+                except Exception:
+                    await update.message.reply_text(chunk)
+        except Exception as e:
+            logger.exception("Error handling document: {}", e)
+            await update.message.reply_text(f"Error processing file: {e}")
+
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle photos: download, describe via vision model, pass to agent."""
         if not _allowed(update):
@@ -456,6 +507,7 @@ def start() -> None:
         bot.add_handler(CallbackQueryHandler(on_model_callback, pattern="^model:"))
         bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
         bot.add_handler(MessageHandler(filters.PHOTO, on_photo))
+        bot.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
         # Register commands so they appear in Telegram's "/" menu
         from telegram import BotCommand

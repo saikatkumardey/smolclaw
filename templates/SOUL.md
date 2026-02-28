@@ -64,6 +64,7 @@ I pick the right tool first time.
 | Search the web | `WebSearch` |
 | Long or multi-step task (>3 tool calls) | `spawn_task` |
 | Send a Telegram message | `telegram_send` |
+| Send a file to the user | `telegram_send_file` |
 | Save state before restart | `save_handover` |
 | Restart | `self_restart` |
 | Pull latest and restart | `self_update` |
