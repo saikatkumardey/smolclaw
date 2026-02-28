@@ -505,6 +505,15 @@ def start() -> None:
         scheduler = setup_scheduler()
         scheduler.start()
 
+        # Notify user on startup (confirms restart/update completed)
+        default_chat = os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
+        if default_chat:
+            from .handover import exists as handover_exists
+            msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
+            asyncio.get_event_loop().run_until_complete(
+                bot.bot.send_message(chat_id=default_chat, text=msg)
+            )
+
         # Graceful shutdown handler
         def _shutdown(signum, frame):
             logger.info("Shutdown signal received. Saving handover...")

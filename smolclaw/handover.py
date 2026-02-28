@@ -17,3 +17,7 @@ def load() -> str:
 
 def clear() -> None:
     workspace.HANDOVER.unlink(missing_ok=True)
+
+
+def exists() -> bool:
+    return workspace.HANDOVER.exists()
