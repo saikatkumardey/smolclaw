@@ -13,6 +13,30 @@ import typer
 from dotenv import load_dotenv
 
 
+async def _vision_describe(image_path: str, mime_ext: str, caption: str) -> str | None:
+    """Return a vision description of an image, or None if unavailable (no API key or error)."""
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        return None
+    try:
+        import litellm
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
+        resp = await asyncio.to_thread(
+            litellm.completion,
+            model=vision_model,
+            messages=[{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/{mime_ext};base64,{b64}"}},
+                {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
+            ]}],
+            max_tokens=300,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        logger.warning("Vision call failed: {}", e)
+        return None
+
+
 def _to_telegram_md(text: str) -> str:
     """Convert CommonMark bold/italic to Telegram Markdown v1 format."""
     # **bold** → *bold*  (Telegram v1 uses single asterisk)
@@ -395,25 +419,10 @@ def start() -> None:
 
             mime = doc.mime_type or ""
             if mime.startswith("image/"):
-                try:
-                    import litellm
-                    with open(dest, "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode()
-                    ext = mime.split("/")[-1]
-                    vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
-                    resp = await asyncio.to_thread(
-                        litellm.completion,
-                        model=vision_model,
-                        messages=[{"role": "user", "content": [
-                            {"type": "image_url", "image_url": {"url": f"data:image/{ext};base64,{b64}"}},
-                            {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
-                        ]}],
-                        max_tokens=300,
-                    )
-                    description = resp.choices[0].message.content
+                description = await _vision_describe(str(dest), mime.split("/")[-1], caption)
+                if description:
                     agent_msg = f"[User sent image '{doc.file_name}': {description}. Saved to: {dest}]\n\n{caption}"
-                except Exception as ve:
-                    logger.warning("Vision call failed: {}", ve)
+                else:
                     agent_msg = f"[User sent image '{doc.file_name}'. Saved to: {dest}]\n\n{caption}"
             else:
                 agent_msg = f"[User sent file '{doc.file_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
@@ -447,30 +456,11 @@ def start() -> None:
                 await file.download_to_drive(tmp.name)
                 image_path = tmp.name
 
-            # Try vision call via litellm (run in thread to avoid blocking event loop)
-            try:
-                import litellm
-                with open(image_path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode()
-
-                vision_model = os.getenv("LITELLM_MODEL", "anthropic/claude-sonnet-4-6")
-                resp = await asyncio.to_thread(
-                    litellm.completion,
-                    model=vision_model,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                            {"type": "text", "text": f"Describe this image concisely. User's message: {caption}"},
-                        ],
-                    }],
-                    max_tokens=300,
-                )
-                description = resp.choices[0].message.content
+            description = await _vision_describe(image_path, "jpeg", caption)
+            if description:
                 agent_msg = f"[User sent a photo: {description}]\n\n{caption}"
-            except Exception as ve:
-                logger.warning("Vision call failed: {}", ve)
-                agent_msg = f"[User sent a photo. Vision not available.]\n\n{caption}"
+            else:
+                agent_msg = f"[User sent a photo. Saved to: {image_path}]\n\n{caption}"
 
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
             formatted = _to_telegram_md(reply)
