@@ -1,0 +1,53 @@
+title: "smolclaw"
+theme: dark
+prompt: "$ "
+width: 860
+
+steps:
+  - comment: "# Install"
+
+  - cmd: "uv tool install git+https://github.com/saikatkumardey/smolclaw"
+    output: |
+      Resolved 24 packages in 1.1s
+      Installed smolclaw 0.2.0
+
+  - comment: "# Run the setup wizard (one-time)"
+
+  - cmd: "smolclaw setup"
+    output: |
+      ── Step 1/3 — Telegram Bot Token ─────────────────────
+
+        Paste your bot token (hidden): ************************
+        Validating token with Telegram…
+        ✓  Bot validated: @my_smolclaw_bot
+
+      ── Step 2/3 — Your Telegram User ID ──────────────────
+
+        Your Telegram user ID: 987654321
+        ✓  User ID set: 987654321
+
+      ── Step 3/3 — Claude Authentication ──────────────────
+
+        ❯ Paste an API key
+          Login with Claude account (opens browser)
+
+        Paste your ANTHROPIC_API_KEY (hidden): ******************
+        ✓  API key saved.
+
+      ╭─────────────────────────────────────────╮
+      │  ✓  Setup Complete  (~/.smolclaw/.env)  │
+      ╰─────────────────────────────────────────╯
+
+        Start your agent:  smolclaw start
+
+  - comment: "# Start the bot"
+
+  - cmd: "smolclaw start"
+    output: |
+      12:00:01 | INFO    | smolclaw.main - SmolClaw running.
+
+  - comment: "# Bot is live — open Telegram and say hi"
+  - comment: "# /status shows current config"
+  - comment: "# /models lets you switch between Opus, Sonnet, Haiku"
+  - comment: "# /reset clears conversation history"
+  - comment: "# /restart restarts the process"

@@ -1,0 +1,27 @@
+# Scheduled jobs. Edit to customize.
+# cron: standard 5-field cron expression (UTC)
+# deliver_to: Telegram chat_id to send results to
+# heartbeat: true → suppress the message if the agent replies HEARTBEAT_OK
+
+jobs:
+  - id: heartbeat
+    cron: "*/30 * * * *"
+    heartbeat: true
+    prompt: |
+      HEARTBEAT_CHECK. Read HEARTBEAT.md and decide if there is anything worth telling the user.
+      If yes: call telegram_send with a short message, then reply HEARTBEAT_OK.
+      If no: reply HEARTBEAT_OK only. Do not send a message.
+    deliver_to: ""  # filled in by smolclaw setup
+
+# Examples:
+#
+# jobs:
+#   - id: morning-briefing
+#     cron: "0 6 * * *"
+#     prompt: "Give me a brief morning summary: weather, any pending tasks, top news."
+#     deliver_to: "YOUR_TELEGRAM_CHAT_ID"
+#
+#   - id: evening-check
+#     cron: "0 20 * * *"
+#     prompt: "Evening check-in. What should I wrap up today?"
+#     deliver_to: "YOUR_TELEGRAM_CHAT_ID"
