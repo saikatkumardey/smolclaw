@@ -6,7 +6,6 @@ import os
 import re
 import signal
 import sys
-import tempfile
 from pathlib import Path
 
 import typer

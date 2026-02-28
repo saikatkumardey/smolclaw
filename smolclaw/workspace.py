@@ -15,7 +15,6 @@ CRONS      = HOME / "crons.yaml"
 SKILLS_DIR   = HOME / "skills"
 TOOLS_DIR    = HOME / "tools"
 UPLOADS_DIR  = HOME / "uploads"
-DB         = HOME / "smolclaw.db"
 HANDOVER   = HOME / "handover.md"
 
 # Default templates shipped with the package
