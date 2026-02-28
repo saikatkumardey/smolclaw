@@ -16,7 +16,7 @@ It remembers you across sessions, runs cron jobs, writes custom tools on the fly
 
 **Load what you need, not everything.** Skills exist so the agent can learn on demand. Instructions that aren't needed every turn shouldn't burn tokens every turn.
 
-**One agent is enough.** Don't add orchestration, sub-agents, or multi-agent hierarchies until the single agent genuinely can't handle the task. Complexity is a cost, not a feature.
+**Start with one agent.** The main session handles most things. Sub-agents exist (`spawn_task`) but as a last resort — for long-running background work that would block the main conversation. Default to one agent, reach for two only when you have a specific reason.
 
 **The user owns everything.** All data lives in `~/.smolclaw/`. No cloud dependency, no accounts, no telemetry. You can read, edit, or delete every file the agent touches. If it breaks, `rm -rf ~/.smolclaw` and start over.
 
