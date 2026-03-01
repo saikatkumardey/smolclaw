@@ -35,5 +35,5 @@ def execute(city: str) -> str:
 ## Notes
 
 - Tools are loaded on every message — no restart needed.
-- Use `shell_exec` to install any required packages first (e.g. `uv pip install requests`).
+- Use `Bash` to install any required packages first (e.g. `uv pip install requests`).
 - Tell the user what tool you built and how to use it.

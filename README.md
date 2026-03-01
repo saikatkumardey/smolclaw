@@ -142,7 +142,6 @@ It writes what it learns to `USER.md`, `SOUL.md`, and `MEMORY.md` and carries th
 | Command | What it does |
 |---------|-------------|
 | `/status` | Model, workspace path, tool counts, last turn cost |
-| `/cancel` | Stop the current response mid-generation |
 | `/reset` | Clear conversation history and start fresh |
 | `/models` | Switch the Claude model |
 | `/help` | Show available commands |

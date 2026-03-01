@@ -190,6 +190,9 @@ def start() -> None:
     from . import workspace
     workspace.init()
     load_dotenv(workspace.HOME / ".env", override=True)
+    from .config import Config
+    cfg = Config.load()
+    os.environ["SMOLCLAW_MODEL"] = cfg.get("model")
     from loguru import logger
     logger.remove()
     logger.add(
@@ -268,6 +271,7 @@ def start() -> None:
         from . import workspace as ws
         from .tool_loader import load_custom_tools
         from .tools_sdk import CUSTOM_TOOLS
+        from .session_state import SessionState
         dynamic_tools = load_custom_tools()
         builtin_count = 5  # Bash, Read, Write, WebSearch, WebFetch
         custom_sdk_count = len(CUSTOM_TOOLS) + 1  # +1 for spawn_task
@@ -282,12 +286,18 @@ def start() -> None:
         result = get_last_result(str(update.effective_chat.id))
         cost_line = ""
         if result:
-            cost = f"${result.total_cost_usd:.4f}" if result.total_cost_usd else "n/a"
             usage = result.usage or {}
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
             cache_read = usage.get("cache_read_input_tokens", 0)
             cache_write = usage.get("cache_creation_input_tokens", 0)
             cache_str = f" | cache ↓{cache_read} ↑{cache_write}" if (cache_read or cache_write) else ""
-            cost_line = f"\nLast turn: {cost} | {result.num_turns} turns | {result.duration_ms}ms{cache_str}"
+            cost_line = f"\nLast turn: {inp}in/{out}out | {result.num_turns} turns | {result.duration_ms}ms{cache_str}"
+        # Daily usage from session state
+        usage_today = SessionState.load().get_usage_today()
+        today_line = (
+            f"\nToday: {usage_today['input_tokens']}in/{usage_today['output_tokens']}out | {usage_today['turns']} turns"
+        )
         text = (
             f"Model: {current_model}\n"
             f"Workspace: {ws.HOME}\n"
@@ -297,6 +307,7 @@ def start() -> None:
             f"Skills: {skill_count}\n"
             f"Memory: {memory_lines} lines"
             f"{cost_line}"
+            f"{today_line}"
         )
         await update.message.reply_text(text)
 

@@ -50,7 +50,7 @@ SmolClaw is a self-hosted Telegram bot that wraps a `claude-agent-sdk` `ClaudeSD
 
 **Built-in tools** (Claude Code native, 5): `Bash`, `Read`, `Write`, `WebSearch`, `WebFetch`.
 
-**Custom SDK tools** (`smolclaw/tools_sdk.py`, 5): `telegram_send`, `save_handover`, `self_restart`, `self_update`, `spawn_task` — served via an in-process MCP server named `smolclaw`. Telegram HTTP logic lives in `smolclaw/tools.py:_send_telegram` and is shared with `TelegramSender` (used by the scheduler).
+**Custom SDK tools** (`smolclaw/tools_sdk.py`, 6): `telegram_send`, `save_handover`, `self_restart`, `self_update`, `spawn_task` — served via an in-process MCP server named `smolclaw`. Telegram HTTP logic lives in `smolclaw/tools.py:_send_telegram` and is shared with `TelegramSender` (used by the scheduler).
 
 **Custom tools** (`smolclaw/tool_loader.py`): Any `.py` file in `~/.smolclaw/tools/` that exports `SCHEMA` (OpenAI function schema dict) and `execute` (callable) is dynamically loaded as an SDK `@tool`. Tools are reloaded on every request — no restart needed. A change in the dynamic tool set triggers a one-time client reconnect for that chat session.
 

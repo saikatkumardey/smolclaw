@@ -1,8 +1,10 @@
 """Workspace management. All agent data lives in ~/.smolclaw/"""
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 HOME = Path(os.getenv("SMOLCLAW_HOME", Path.home() / ".smolclaw"))
@@ -16,6 +18,8 @@ SKILLS_DIR   = HOME / "skills"
 TOOLS_DIR    = HOME / "tools"
 UPLOADS_DIR  = HOME / "uploads"
 HANDOVER   = HOME / "handover.md"
+CONFIG       = HOME / "smolclaw.json"
+SESSION_STATE = HOME / "session_state.json"
 
 # Default templates shipped with the package
 _TEMPLATES = Path(__file__).parent.parent / "templates"
@@ -58,3 +62,24 @@ def read(path: Path, default: str = "") -> str:
         return path.read_text()
     except FileNotFoundError:
         return default
+
+
+def read_json(path: Path) -> dict:
+    """Read a JSON file. Returns empty dict if missing or invalid."""
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def write_json(path: Path, data: dict) -> None:
+    """Atomic write: write to unique temp file then rename."""
+    fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        Path(tmp_name).replace(path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise

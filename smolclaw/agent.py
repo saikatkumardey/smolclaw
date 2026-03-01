@@ -24,15 +24,14 @@ from .skills import load_skills
 from .tool_loader import load_custom_tools
 from .tools_sdk import CUSTOM_TOOLS
 from . import workspace
+from .config import Config
+from .session_state import SessionState
 from .handover import load as handover_load, clear as handover_clear
 
 from loguru import logger
 
-MAX_TURNS = 10
-
 # Keeps fire-and-forget tasks alive until completion (prevents GC mid-run)
 _background_tasks: set[asyncio.Task] = set()
-DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # Available Claude models: (model_id, display_label)
 AVAILABLE_MODELS: list[tuple[str, str]] = [
@@ -43,17 +42,15 @@ AVAILABLE_MODELS: list[tuple[str, str]] = [
 
 
 def get_current_model() -> str:
-    return os.getenv("SMOLCLAW_MODEL", DEFAULT_MODEL)
+    return Config.load().get("model")
 
 
 async def set_model(model_id: str) -> None:
-    """Persist the chosen model to .env and reset all sessions."""
+    """Persist the chosen model to smolclaw.json and reset all sessions."""
+    cfg = Config.load()
+    cfg.set("model", model_id)
+    # Keep env var in sync for scheduler and other env-var readers
     os.environ["SMOLCLAW_MODEL"] = model_id
-    env_path = workspace.HOME / ".env"
-    from .setup import _read_env, _write_env
-    env = _read_env(env_path)
-    env["SMOLCLAW_MODEL"] = model_id
-    _write_env(env_path, env)
     for chat_id in list(_sessions.keys()):
         await reset_session(chat_id)
 
@@ -147,6 +144,8 @@ def _workspace_context() -> str:
         f"- crons.yaml: {workspace.CRONS}\n"
         f"- skills/:    {workspace.SKILLS_DIR}/<name>/SKILL.md\n"
         f"- tools/:     {workspace.TOOLS_DIR}/<name>.py\n"
+        f"- Config:     {workspace.CONFIG}  (smolclaw.json — runtime settings)\n"
+        f"- Session:    {workspace.SESSION_STATE}  (session_state.json — usage tracking)\n"
         f"Never use bare filenames like 'SOUL.md' — always the full path above."
     )
 
@@ -191,9 +190,12 @@ def _system_prompt() -> str:
     return "\n\n".join(parts)
 
 
-def _make_spawn_task_tool(chat_id: str):
+def _make_spawn_task_tool(chat_id: str, cfg: Config):
     """Build spawn_task as a fire-and-forget closure. Result delivered via telegram_send."""
     from .tools import _send_telegram
+
+    subagent_timeout = cfg.get("subagent_timeout")
+    subagent_max_turns = cfg.get("subagent_max_turns")
 
     @tool(
         "spawn_task",
@@ -205,17 +207,16 @@ def _make_spawn_task_tool(chat_id: str):
         {"task": str},
     )
     async def spawn_task(args: dict) -> dict:
-        timeout = int(os.getenv("SMOLCLAW_SUBAGENT_TIMEOUT", "120"))
         opts = ClaudeAgentOptions(
             allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch"],
             permission_mode="acceptEdits",
-            max_turns=15,
+            max_turns=subagent_max_turns,
         )
 
         async def _run() -> None:
             try:
                 parts = []
-                async with asyncio.timeout(timeout):
+                async with asyncio.timeout(subagent_timeout):
                     async for msg in query(prompt=args["task"], options=opts):
                         if isinstance(msg, AssistantMessage):
                             for block in msg.content:
@@ -238,7 +239,8 @@ def _make_spawn_task_tool(chat_id: str):
 
 def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions with full tool set."""
-    spawn_task = _make_spawn_task_tool(chat_id)
+    cfg = Config.load()
+    spawn_task = _make_spawn_task_tool(chat_id, cfg)
     smolclaw_tools = CUSTOM_TOOLS + [spawn_task]
     smolclaw_server = create_sdk_mcp_server(name="smolclaw", version="1.0.0", tools=smolclaw_tools)
 
@@ -256,13 +258,13 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         allowed.append("mcp__dynamic__*")
 
     return ClaudeAgentOptions(
-        model=get_current_model(),
+        model=cfg.get("model"),
         system_prompt=_system_prompt(),
         allowed_tools=allowed,
         mcp_servers=mcp_servers,
         permission_mode="acceptEdits",
         cwd=str(workspace.HOME),
-        max_turns=MAX_TURNS,
+        max_turns=cfg.get("max_turns"),
         include_partial_messages=True,
     )
 
@@ -329,12 +331,17 @@ async def run(
                 _sessions[chat_id].last_result = msg
                 usage = msg.usage or {}
                 session_log(chat_id, "result", {
-                    "cost_usd": msg.total_cost_usd,
                     "turns": msg.num_turns,
                     "duration_ms": msg.duration_ms,
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
                     "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
                     "cache_write_tokens": usage.get("cache_creation_input_tokens", 0),
                 })
+                try:
+                    SessionState.load().record_turn(chat_id, msg)
+                except Exception as e:
+                    logger.warning("SessionState.record_turn failed: {}", e)
         reply = "\n".join(parts) or "(no response)"
     except Exception as e:
         logger.exception("Agent error: {}", e)

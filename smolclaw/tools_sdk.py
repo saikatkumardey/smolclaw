@@ -83,4 +83,25 @@ async def telegram_send_file(args: dict) -> dict:
     return {"content": [{"type": "text", "text": text}]}
 
 
-CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update]
+@tool(
+    "update_config",
+    "Update a runtime configuration value (max_turns, subagent_timeout, subagent_max_turns). Use /models command for model changes.",
+    {"key": str, "value": int},
+)
+async def update_config(args: dict) -> dict:
+    from .config import Config
+
+    _AGENT_EXCLUDED = {"model"}  # model changes require session resets; use /models
+    mutable = set(Config.DEFAULTS.keys()) - _AGENT_EXCLUDED
+    key = args["key"]
+    if key not in mutable:
+        return {"content": [{"type": "text", "text": f"Error: Cannot set '{key}' via this tool. Use /models for model changes."}]}
+    cfg = Config.load()
+    try:
+        cfg.set(key, int(args["value"]))
+    except (KeyError, TypeError, ValueError) as e:
+        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
+    return {"content": [{"type": "text", "text": f"Set {key} = {args['value']}"}]}
+
+
+CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update, update_config]

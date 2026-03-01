@@ -7,9 +7,9 @@ When the user says "learn to use <repo>" or "install <url>":
 ## Step 1 — Clone and inspect
 
 ```
-shell_exec("git clone <url> /tmp/<name> --depth 1")
-shell_exec("cat /tmp/<name>/README.md")
-shell_exec("cat /tmp/<name>/README* /tmp/<name>/docs/*.md 2>/dev/null | head -200")
+Bash("git clone <url> /tmp/<name> --depth 1")
+Bash("cat /tmp/<name>/README.md")
+Bash("cat /tmp/<name>/README* /tmp/<name>/docs/*.md 2>/dev/null | head -200")
 ```
 
 ## Step 2 — Figure out how to install
@@ -19,20 +19,20 @@ Check Cargo.toml → use `cargo install`
 Check go.mod → use `go install`
 Check package.json → use `npm install -g`
 Binary releases → download from GitHub releases
-When in doubt: `shell_exec("cd /tmp/<name> && cat pyproject.toml setup.py Makefile 2>/dev/null")`
+When in doubt: `Bash("cd /tmp/<name> && cat pyproject.toml setup.py Makefile 2>/dev/null")`
 
 ## Step 3 — Install it
 
 ```
-shell_exec("uv tool install /tmp/<name>")   # Python
-shell_exec("cargo install --path /tmp/<name>")  # Rust
+Bash("uv tool install /tmp/<name>")   # Python
+Bash("cargo install --path /tmp/<name>")  # Rust
 ```
 
 ## Step 4 — Verify and explore
 
 ```
-shell_exec("<tool> --help")
-shell_exec("<tool> <subcommand> --help")
+Bash("<tool> --help")
+Bash("<tool> <subcommand> --help")
 ```
 
 ## Step 5 — Write a skill
