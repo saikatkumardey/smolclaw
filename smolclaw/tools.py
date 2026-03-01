@@ -6,17 +6,25 @@ from pathlib import Path
 
 import requests
 
+from . import workspace
+
+_MAX_TG_MSG = 4096
+
 
 def _send_telegram(chat_id: str, message: str) -> str:
     """Send a Telegram message. Returns 'Sent.' or an error string."""
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"},
-            timeout=10,
-        )
-        return "Sent." if r.ok else f"Failed: {r.text}"
+        chunks = [message[i:i + _MAX_TG_MSG] for i in range(0, len(message), _MAX_TG_MSG)]
+        for chunk in chunks:
+            r = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"},
+                timeout=10,
+            )
+            if not r.ok:
+                return f"Failed: {r.text}"
+        return "Sent."
     except Exception as e:
         return f"Error: {e}"
 
@@ -24,7 +32,9 @@ def _send_telegram(chat_id: str, message: str) -> str:
 def _send_telegram_file(chat_id: str, file_path: str) -> str:
     """Send a file to a Telegram chat via sendDocument. Returns 'Sent.' or an error string."""
     try:
-        path = Path(file_path)
+        path = Path(file_path).resolve()
+        if not str(path).startswith(str(workspace.HOME.resolve())):
+            return f"Error: file path {file_path!r} is outside the workspace."
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         with open(path, "rb") as f:
             r = requests.post(

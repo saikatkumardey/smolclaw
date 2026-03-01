@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import signal
 import sys
 from pathlib import Path
 
@@ -27,7 +26,7 @@ async def _reply_chunked(message, text: str) -> None:
 def _to_telegram_md(text: str) -> str:
     """Convert CommonMark bold/italic to Telegram Markdown v1 format."""
     # **bold** → *bold*  (Telegram v1 uses single asterisk)
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text, flags=re.DOTALL)
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
     # ### headings → *Heading* (bold, since Telegram has no headings)
     text = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=re.MULTILINE)
     return text
@@ -372,6 +371,16 @@ def start() -> None:
         if not _allowed(update):
             return
         await update.message.reply_text("Restarting…")
+        try:
+            from .handover import save
+            save("Process restarting via /restart command.")
+        except Exception:
+            pass
+        try:
+            from .scheduler import scheduler as _sched
+            _sched.shutdown(wait=False)
+        except Exception:
+            pass
         import shutil as _shutil
         exe = _shutil.which("smolclaw") or sys.argv[0]
         argv = [exe, "start"] if len(sys.argv) < 2 else [exe] + sys.argv[1:]
@@ -401,7 +410,7 @@ def start() -> None:
             last_edit: list[float] = [0.0]  # mutable for closure
 
             async def on_partial(partial: str) -> None:
-                now = asyncio.get_event_loop().time()
+                now = asyncio.get_running_loop().time()
                 if now - last_edit[0] < 1.5:
                     return
                 last_edit[0] = now
@@ -427,7 +436,7 @@ def start() -> None:
                     await update.message.reply_text(chunk)
         except Exception as e:
             logger.exception("Error handling message: {}", e)
-            await update.message.reply_text(f"Error: {e}")
+            await update.message.reply_text("Something went wrong. Check the logs.")
 
     async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle documents: download to uploads/, pass path to agent. Vision for images."""
@@ -440,7 +449,8 @@ def start() -> None:
 
         try:
             file = await context.bot.get_file(doc.file_id)
-            safe_name = Path(doc.file_name).name  # strip any directory components
+            raw_name = doc.file_name or f"{doc.file_unique_id}.bin"
+            safe_name = Path(raw_name).name
             dest = workspace.UPLOADS_DIR / safe_name
             await file.download_to_drive(str(dest))
 
@@ -451,7 +461,7 @@ def start() -> None:
             await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling document: {}", e)
-            await update.message.reply_text(f"Error processing file: {e}")
+            await update.message.reply_text("Something went wrong. Check the logs.")
 
     async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle photos: save to uploads/, pass path to agent for native vision."""
@@ -470,7 +480,7 @@ def start() -> None:
             await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling photo: {}", e)
-            await update.message.reply_text(f"Error processing photo: {e}")
+            await update.message.reply_text("Something went wrong. Check the logs.")
 
     # ---------------------------------------------------------------------------
     # Build and run the bot
@@ -494,7 +504,7 @@ def start() -> None:
 
         # Register commands so they appear in Telegram's "/" menu
         from telegram import BotCommand
-        asyncio.get_event_loop().run_until_complete(bot.bot.set_my_commands([
+        asyncio.run(bot.bot.set_my_commands([
             BotCommand("start",   "Wake the bot"),
             BotCommand("help",    "Show available commands"),
             BotCommand("status",  "Show model, workspace, tool counts"),
@@ -514,13 +524,11 @@ def start() -> None:
         if default_chat:
             from .handover import exists as handover_exists
             msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
-            asyncio.get_event_loop().run_until_complete(
-                bot.bot.send_message(chat_id=default_chat, text=msg)
-            )
+            asyncio.run(bot.bot.send_message(chat_id=default_chat, text=msg))
 
-        # Graceful shutdown handler
-        def _shutdown(signum, frame):
-            logger.info("Shutdown signal received. Saving handover...")
+        # Graceful shutdown hook — runs after run_polling() exits cleanly
+        async def _post_shutdown(app) -> None:
+            logger.info("Shutdown: saving handover...")
             try:
                 from .handover import save
                 save("Process shutting down. No pending tasks.")
@@ -528,10 +536,8 @@ def start() -> None:
                 pass
             scheduler.shutdown(wait=False)
             logger.info("SmolClaw stopped.")
-            sys.exit(0)
 
-        signal.signal(signal.SIGTERM, _shutdown)
-        signal.signal(signal.SIGINT, _shutdown)
+        bot.post_shutdown = _post_shutdown
 
         logger.info("SmolClaw running.")
         bot.run_polling()

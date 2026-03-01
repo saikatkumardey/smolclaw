@@ -44,7 +44,8 @@ def _read_env(path: Path) -> dict[str, str]:
 def _write_env(path: Path, data: dict[str, str]) -> None:
     lines: list[str] = []
     for k, v in data.items():
-        lines.append(f"{k}={v}")
+        escaped = v.replace('\\', '\\\\').replace('"', '\\"')
+        lines.append(f'{k}="{escaped}"')
     path.write_text("\n".join(lines) + "\n")
 
 

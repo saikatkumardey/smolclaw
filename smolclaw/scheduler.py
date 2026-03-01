@@ -14,7 +14,10 @@ from . import workspace
 _telegram = TelegramSender()
 
 from loguru import logger
-DEFAULT_CHAT = os.getenv("ALLOWED_USER_IDS", "").split(",")[0]
+
+
+def _default_chat() -> str:
+    return os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
 
@@ -23,6 +26,9 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
     from .agent import run
     logger.info("Cron: {}", job_id)
     try:
+        # NOTE: spawn_task background tasks are not supported in cron context.
+        # asyncio.run() creates a fresh event loop that is destroyed when run() returns,
+        # cancelling any fire-and-forget tasks created during execution.
         result = asyncio.run(run(chat_id=f"cron:{job_id}", user_message=prompt))
         if heartbeat and HEARTBEAT_OK in result:
             logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
@@ -41,21 +47,29 @@ def setup_scheduler() -> BackgroundScheduler:
 
     data = yaml.safe_load(crons_path.read_text()) or {}
     for job in data.get("jobs", []):
-        deliver_to = job.get("deliver_to") or DEFAULT_CHAT
+        missing = [f for f in ("id", "cron", "prompt") if f not in job]
+        if missing:
+            logger.warning("Skipping cron job — missing fields: %s", missing)
+            continue
+        deliver_to = job.get("deliver_to") or _default_chat()
         is_heartbeat = bool(job.get("heartbeat", False))
-        scheduler.add_job(
-            _run_job,
-            CronTrigger.from_crontab(job["cron"]),
-            kwargs={
-                "job_id": job["id"],
-                "prompt": job["prompt"],
-                "deliver_to": deliver_to,
-                "heartbeat": is_heartbeat,
-            },
-            id=job["id"],
-            replace_existing=True,
-            max_instances=2,
-            misfire_grace_time=300,
-        )
-        logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
+        try:
+            scheduler.add_job(
+                _run_job,
+                CronTrigger.from_crontab(job["cron"]),
+                kwargs={
+                    "job_id": job["id"],
+                    "prompt": job["prompt"],
+                    "deliver_to": deliver_to,
+                    "heartbeat": is_heartbeat,
+                },
+                id=job["id"],
+                replace_existing=True,
+                max_instances=2,
+                misfire_grace_time=300,
+            )
+            logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
+        except Exception as e:
+            logger.error("Failed to schedule job %s: %s", job.get("id", "?"), e)
+            continue
     return scheduler

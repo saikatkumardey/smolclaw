@@ -24,10 +24,14 @@ _TEMPLATES = Path(__file__).parent.parent / "templates"
 def init() -> None:
     """Create ~/.smolclaw/ and populate with default templates if missing."""
     HOME.mkdir(parents=True, exist_ok=True)
+    HOME.chmod(0o700)
     SKILLS_DIR.mkdir(exist_ok=True)
     TOOLS_DIR.mkdir(exist_ok=True)
     UPLOADS_DIR.mkdir(exist_ok=True)
-    (HOME / "sessions").mkdir(exist_ok=True)
+    UPLOADS_DIR.chmod(0o700)
+    sessions_dir = HOME / "sessions"
+    sessions_dir.mkdir(exist_ok=True)
+    sessions_dir.chmod(0o700)
 
     for name in ("SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml"):
         dest = HOME / name

@@ -91,6 +91,12 @@ All handlers guard with `_allowed(update)` — non-allowlisted users get no resp
 | `SMOLCLAW_SOURCE` | GitHub URL | Source repo for `self_update`. |
 | `SMOLCLAW_SUBAGENT_TIMEOUT` | `120` | Sub-agent timeout in seconds. |
 
+## Claude Code workflow preferences
+
+- Use **Opus 4.6** for planning, architecture, and code review tasks.
+- Use **Sonnet 4.6** for implementation work (writing code, applying fixes, refactoring).
+- After parallel agents modify source files, **always run the full test suite** before declaring done to catch cross-agent dependencies.
+
 ## Key design constraints
 
 - `ALLOWED_USER_IDS` is **required** — `smolclaw start` exits if unset. Every handler silently ignores non-allowlisted users.

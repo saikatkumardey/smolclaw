@@ -67,8 +67,7 @@ class _Session:
 
 # One session per chat_id, cached in memory for multi-turn
 _sessions: dict[str, _Session] = {}
-
-SESSIONS_DIR = workspace.HOME / "sessions"
+_session_locks: dict[str, asyncio.Lock] = {}
 
 
 async def reset_session(chat_id: str) -> None:
@@ -95,18 +94,22 @@ def get_last_result(chat_id: str) -> ResultMessage | None:
     return None
 
 
-def session_log(chat_id: str, role: str, content: str) -> None:
+def session_log(chat_id: str, role: str, content: str | dict) -> None:
     """Append a line to today's session log. JSONL, one file per day."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    path = SESSIONS_DIR / f"{today}.jsonl"
-    entry = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "chat_id": chat_id,
-        "role": role,
-        "content": content,
-    }
-    with open(path, "a") as f:
-        f.write(json.dumps(entry) + "\n")
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        path = workspace.HOME / "sessions" / f"{today}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "chat_id": chat_id,
+            "role": role,
+            "content": content,
+        }
+        with open(path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        logger.warning("session_log failed: %s", e)
 
 
 def _onboarding_block() -> str:
@@ -172,7 +175,7 @@ def _system_prompt() -> str:
     if memory := workspace.read(workspace.MEMORY):
         parts.append(f"=== MEMORY.md ===\n{memory.strip()}")
 
-    # Inject handover note if one exists (cleared immediately after reading)
+    # Inject handover note if one exists
     if handover := handover_load():
         parts.append(
             f"=== HANDOVER NOTE (read-only context) ===\n"
@@ -180,7 +183,6 @@ def _system_prompt() -> str:
             f"Do NOT re-execute any actions described here. Only resume tasks listed under PENDING.\n\n"
             f"{handover.strip()}"
         )
-        handover_clear()
 
     # Inject onboarding instructions if user is not yet known
     if "Not set yet" in user_content:
@@ -280,23 +282,29 @@ async def run(
     if dynamic_tools:
         dynamic_mcp_server = create_sdk_mcp_server(name="dynamic", version="1.0.0", tools=dynamic_tools)
 
-    # Check if client needs creation or replacement
-    existing = _sessions.get(chat_id)
-    if existing is not None and existing.dynamic_tool_names != current_tool_names:
-        logger.info("Dynamic tools changed for {}; resetting client", chat_id)
-        await reset_session(chat_id)
-        existing = None
+    if chat_id not in _session_locks:
+        _session_locks[chat_id] = asyncio.Lock()
+    lock = _session_locks[chat_id]
 
-    if existing is None:
-        options = _make_options(chat_id, dynamic_mcp_server)
-        client = ClaudeSDKClient(options=options)
-        await client.connect()
-        _sessions[chat_id] = _Session(client=client, dynamic_tool_names=current_tool_names)
+    async with lock:
+        # Check if client needs creation or replacement
+        existing = _sessions.get(chat_id)
+        if existing is not None and existing.dynamic_tool_names != current_tool_names:
+            logger.info("Dynamic tools changed for {}; resetting client", chat_id)
+            await reset_session(chat_id)
+            existing = None
+
+        if existing is None:
+            options = _make_options(chat_id, dynamic_mcp_server)
+            client = ClaudeSDKClient(options=options)
+            await client.connect()
+            handover_clear()
+            _sessions[chat_id] = _Session(client=client, dynamic_tool_names=current_tool_names)
 
     client = _sessions[chat_id].client
 
     # Prepend current time (keeps system prompt stable for caching)
-    timestamped_message = f"[Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
+    timestamped_message = f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
 
     session_log(chat_id, "user", user_message)
 

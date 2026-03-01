@@ -11,6 +11,8 @@ from claude_agent_sdk.types import McpSdkServerConfig
 
 from loguru import logger
 
+_known_tool_files: set[str] = set()
+
 
 def _make_sdk_tool(name: str, desc: str, properties: dict, required: list, execute_fn) -> SdkMcpTool:
     """
@@ -47,6 +49,9 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
         return tool_list
 
     for path in sorted(tools_dir.glob("*.py")):
+        if path.name not in _known_tool_files:
+            logger.warning("New tool file detected: %s — loaded without integrity check", path.name)
+            _known_tool_files.add(path.name)
         try:
             spec = importlib.util.spec_from_file_location(path.stem, path)
             mod = importlib.util.module_from_spec(spec)
