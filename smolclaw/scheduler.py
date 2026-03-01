@@ -54,6 +54,8 @@ def setup_scheduler() -> BackgroundScheduler:
             },
             id=job["id"],
             replace_existing=True,
+            max_instances=2,
+            misfire_grace_time=300,
         )
         logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
     return scheduler
