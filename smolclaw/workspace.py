@@ -18,8 +18,10 @@ SKILLS_DIR   = HOME / "skills"
 TOOLS_DIR    = HOME / "tools"
 UPLOADS_DIR  = HOME / "uploads"
 HANDOVER   = HOME / "handover.md"
-CONFIG       = HOME / "smolclaw.json"
+CONFIG        = HOME / "smolclaw.json"
 SESSION_STATE = HOME / "session_state.json"
+PID_FILE      = HOME / ".pid"
+LOG_FILE      = HOME / "smolclaw.log"
 
 # Default templates shipped with the package
 _TEMPLATES = Path(__file__).parent.parent / "templates"
