@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections import defaultdict
 from collections.abc import Callable, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -26,7 +27,7 @@ from .tools_sdk import CUSTOM_TOOLS
 from . import workspace
 from .config import Config
 from .session_state import SessionState
-from .handover import load as handover_load, clear as handover_clear
+from .handover import load as handover_load, clear as handover_clear, exists as handover_exists
 
 from loguru import logger
 
@@ -60,11 +61,12 @@ class _Session:
     client: ClaudeSDKClient
     dynamic_tool_names: frozenset[str] = field(default_factory=frozenset)
     last_result: ResultMessage | None = None
+    handover_pending: bool = False
 
 
 # One session per chat_id, cached in memory for multi-turn
 _sessions: dict[str, _Session] = {}
-_session_locks: dict[str, asyncio.Lock] = {}
+_session_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 async def reset_session(chat_id: str) -> None:
@@ -174,13 +176,14 @@ def _system_prompt() -> str:
     if memory := workspace.read(workspace.MEMORY):
         parts.append(f"=== MEMORY.md ===\n{memory.strip()}")
 
-    # Inject handover note if one exists
+    # Inject handover note if one exists (capped at 4000 chars to prevent token waste)
     if handover := handover_load():
+        handover_text = handover.strip()[:4000]
         parts.append(
             f"=== HANDOVER NOTE (read-only context) ===\n"
             f"The following is history from the previous session. "
             f"Do NOT re-execute any actions described here. Only resume tasks listed under PENDING.\n\n"
-            f"{handover.strip()}"
+            f"{handover_text}"
         )
 
     # Inject onboarding instructions if user is not yet known
@@ -284,8 +287,6 @@ async def run(
     if dynamic_tools:
         dynamic_mcp_server = create_sdk_mcp_server(name="dynamic", version="1.0.0", tools=dynamic_tools)
 
-    if chat_id not in _session_locks:
-        _session_locks[chat_id] = asyncio.Lock()
     lock = _session_locks[chat_id]
 
     async with lock:
@@ -300,8 +301,12 @@ async def run(
             options = _make_options(chat_id, dynamic_mcp_server)
             client = ClaudeSDKClient(options=options)
             await client.connect()
-            handover_clear()
-            _sessions[chat_id] = _Session(client=client, dynamic_tool_names=current_tool_names)
+            has_handover = handover_exists()
+            _sessions[chat_id] = _Session(
+                client=client,
+                dynamic_tool_names=current_tool_names,
+                handover_pending=has_handover,
+            )
 
     client = _sessions[chat_id].client
 
@@ -343,9 +348,14 @@ async def run(
                 except Exception as e:
                     logger.warning("SessionState.record_turn failed: {}", e)
         reply = "\n".join(parts) or "(no response)"
+        # Clear handover only after successful processing
+        session = _sessions[chat_id]
+        if session.handover_pending:
+            handover_clear()
+            session.handover_pending = False
     except Exception as e:
         logger.exception("Agent error: {}", e)
-        reply = f"Error: {e}"
+        reply = "Something went wrong. Please try again."
 
     session_log(chat_id, "assistant", reply)
     return reply

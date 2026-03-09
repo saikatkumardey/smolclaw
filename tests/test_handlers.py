@@ -1,0 +1,256 @@
+"""Handler tests — Telegram message handling, chunking, markdown conversion."""
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+# ---------------------------------------------------------------------------
+# _to_telegram_md
+# ---------------------------------------------------------------------------
+
+class TestToTelegramMd:
+    def test_bold_conversion(self):
+        from smolclaw.handlers import _to_telegram_md
+        assert _to_telegram_md("**hello**") == "*hello*"
+
+    def test_heading_conversion(self):
+        from smolclaw.handlers import _to_telegram_md
+        assert _to_telegram_md("## Heading") == "*Heading*"
+
+    def test_h1_heading(self):
+        from smolclaw.handlers import _to_telegram_md
+        assert _to_telegram_md("# Title") == "*Title*"
+
+    def test_no_change_plain_text(self):
+        from smolclaw.handlers import _to_telegram_md
+        text = "Just some plain text"
+        assert _to_telegram_md(text) == text
+
+    def test_mixed_bold_and_heading(self):
+        from smolclaw.handlers import _to_telegram_md
+        result = _to_telegram_md("## Title\n\n**bold** word")
+        assert "*Title*" in result
+        assert "*bold*" in result
+
+
+# ---------------------------------------------------------------------------
+# _reply_chunked
+# ---------------------------------------------------------------------------
+
+class TestReplyChunked:
+    @pytest.mark.asyncio
+    async def test_short_message_single_chunk(self):
+        from smolclaw.handlers import _reply_chunked
+        msg = AsyncMock()
+        await _reply_chunked(msg, "hello")
+        msg.reply_text.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_long_message_splits_at_max(self):
+        from smolclaw.handlers import _reply_chunked
+        from smolclaw.tools import MAX_TG_MSG
+        msg = AsyncMock()
+        text = "a" * (MAX_TG_MSG + 100)
+        await _reply_chunked(msg, text)
+        assert msg.reply_text.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_exact_boundary(self):
+        from smolclaw.handlers import _reply_chunked
+        from smolclaw.tools import MAX_TG_MSG
+        msg = AsyncMock()
+        text = "b" * MAX_TG_MSG
+        await _reply_chunked(msg, text)
+        assert msg.reply_text.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_markdown_failure_falls_back_to_plain(self):
+        from smolclaw.handlers import _reply_chunked
+        msg = AsyncMock()
+        call_count = 0
+        async def _side_effect(text, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("parse_mode") == "Markdown":
+                raise Exception("Bad markdown")
+        msg.reply_text = AsyncMock(side_effect=_side_effect)
+        await _reply_chunked(msg, "hello")
+        assert call_count == 2  # first try markdown, then plain
+
+
+# ---------------------------------------------------------------------------
+# on_message
+# ---------------------------------------------------------------------------
+
+def _make_update(chat_id="123", text="hi"):
+    update = MagicMock()
+    update.effective_chat.id = int(chat_id)
+    update.message.text = text
+    update.message.reply_text = AsyncMock()
+    return update
+
+
+def _make_context(chat_id="123"):
+    ctx = MagicMock()
+    ctx.bot.send_chat_action = AsyncMock()
+    ctx.bot.send_message = AsyncMock()
+    ctx.bot.edit_message_text = AsyncMock()
+    ctx.bot.delete_message = AsyncMock()
+    return ctx
+
+
+class TestOnMessage:
+    @pytest.mark.asyncio
+    async def test_happy_path(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_message
+        update = _make_update()
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Reply!"):
+            await on_message(update, ctx)
+        update.message.reply_text.assert_awaited()
+        # Should contain the reply text
+        args = update.message.reply_text.await_args_list[0]
+        assert "Reply!" in args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_agent_error_sends_fallback(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_message
+        update = _make_update()
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+            await on_message(update, ctx)
+        update.message.reply_text.assert_awaited()
+        args = update.message.reply_text.await_args_list[0]
+        assert "wrong" in args[0][0].lower()
+
+    @pytest.mark.asyncio
+    async def test_not_allowed_user_ignored(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "999")
+        from smolclaw.handlers import on_message
+        update = _make_update(chat_id="123")
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock) as mock_run:
+            await on_message(update, ctx)
+        mock_run.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# on_photo / on_document
+# ---------------------------------------------------------------------------
+
+class TestOnPhoto:
+    @pytest.mark.asyncio
+    async def test_downloads_and_passes_to_agent(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        import smolclaw.workspace as ws
+        monkeypatch.setattr(ws, "UPLOADS_DIR", tmp_path)
+
+        from smolclaw.handlers import on_photo
+        update = MagicMock()
+        update.effective_chat.id = 123
+        update.message.caption = "Look at this"
+        photo = MagicMock()
+        photo.file_id = "abc"
+        photo.file_unique_id = "photo123"
+        update.message.photo = [photo]
+        update.message.reply_text = AsyncMock()
+
+        ctx = MagicMock()
+        ctx.bot.send_chat_action = AsyncMock()
+        file_mock = AsyncMock()
+        ctx.bot.get_file = AsyncMock(return_value=file_mock)
+
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Saw it"):
+            await on_photo(update, ctx)
+        file_mock.download_to_drive.assert_awaited_once()
+        update.message.reply_text.assert_awaited()
+
+
+class TestOnDocument:
+    @pytest.mark.asyncio
+    async def test_downloads_and_passes_to_agent(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        import smolclaw.workspace as ws
+        monkeypatch.setattr(ws, "UPLOADS_DIR", tmp_path)
+
+        from smolclaw.handlers import on_document
+        update = MagicMock()
+        update.effective_chat.id = 123
+        update.message.caption = "Here's a file"
+        doc = MagicMock()
+        doc.file_id = "def"
+        doc.file_unique_id = "doc456"
+        doc.file_name = "report.pdf"
+        doc.mime_type = "application/pdf"
+        update.message.document = doc
+        update.message.reply_text = AsyncMock()
+
+        ctx = MagicMock()
+        ctx.bot.send_chat_action = AsyncMock()
+        file_mock = AsyncMock()
+        ctx.bot.get_file = AsyncMock(return_value=file_mock)
+
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Got it"):
+            await on_document(update, ctx)
+        file_mock.download_to_drive.assert_awaited_once()
+        update.message.reply_text.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.1: Error classification
+# ---------------------------------------------------------------------------
+
+class TestErrorClassification:
+    @pytest.mark.asyncio
+    async def test_timeout_error_message(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_message
+        update = _make_update()
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=asyncio.TimeoutError()):
+            await on_message(update, ctx)
+        msg = update.message.reply_text.await_args_list[0][0][0]
+        assert "timed out" in msg.lower() or "timeout" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_permission_error_message(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_message
+        update = _make_update()
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=PermissionError("denied")):
+            await on_message(update, ctx)
+        msg = update.message.reply_text.await_args_list[0][0][0]
+        assert "permission" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_connection_error_message(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_message
+        update = _make_update()
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=ConnectionError("no network")):
+            await on_message(update, ctx)
+        msg = update.message.reply_text.await_args_list[0][0][0]
+        assert "connection" in msg.lower()
+
+    @pytest.mark.asyncio
+    async def test_generic_error_message(self, monkeypatch):
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_message
+        update = _make_update()
+        ctx = _make_context()
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("wat")):
+            await on_message(update, ctx)
+        msg = update.message.reply_text.await_args_list[0][0][0]
+        assert "wrong" in msg.lower()
+        assert "wat" not in msg  # should not leak internal error

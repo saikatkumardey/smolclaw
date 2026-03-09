@@ -8,14 +8,14 @@ import requests
 
 from . import workspace
 
-_MAX_TG_MSG = 4096
+MAX_TG_MSG = 4000
 
 
 def _send_telegram(chat_id: str, message: str) -> str:
     """Send a Telegram message. Returns 'Sent.' or an error string."""
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        chunks = [message[i:i + _MAX_TG_MSG] for i in range(0, len(message), _MAX_TG_MSG)]
+        chunks = [message[i:i + MAX_TG_MSG] for i in range(0, len(message), MAX_TG_MSG)]
         for chunk in chunks:
             r = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",

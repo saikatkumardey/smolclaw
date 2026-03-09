@@ -1,6 +1,7 @@
 """Agent tests — mock SDK client to avoid network calls."""
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -82,3 +83,134 @@ async def test_dynamic_tool_change_triggers_reconnect(tmp_path, monkeypatch):
             assert isinstance(result, str)
         finally:
             ag._sessions.pop("reconnect-test", None)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.1: Session lock race condition
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_concurrent_run_same_chat_no_duplicate_sessions(tmp_path, monkeypatch):
+    """Two concurrent run() calls for a new chat_id should not create duplicate sessions."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    connect_count = 0
+
+    async def tracked_connect():
+        nonlocal connect_count
+        connect_count += 1
+        await asyncio.sleep(0.05)  # simulate latency
+
+    mock_client = AsyncMock(spec=ag.ClaudeSDKClient)
+    mock_client.connect = tracked_connect
+    mock_client.receive_response.return_value = _make_fake_receive("ok")()
+
+    with patch("smolclaw.agent.load_custom_tools", return_value=[]), \
+         patch("smolclaw.agent.ClaudeSDKClient", return_value=mock_client), \
+         patch("smolclaw.agent._make_options", return_value=MagicMock()):
+        try:
+            r1, r2 = await asyncio.gather(
+                ag.run(chat_id="race-test", user_message="a"),
+                ag.run(chat_id="race-test", user_message="b"),
+            )
+            # Lock ensures only one session creation
+            assert connect_count == 1
+        finally:
+            ag._sessions.pop("race-test", None)
+            ag._session_locks.pop("race-test", None)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2: Handover lifecycle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_handover_persists_on_agent_error(tmp_path, monkeypatch):
+    """If the agent crashes, the handover file should NOT be deleted."""
+    _patch_workspace(tmp_path, monkeypatch)
+    monkeypatch.setattr("smolclaw.workspace.HANDOVER", tmp_path / "handover.md")
+    (tmp_path / "handover.md").write_text("# Important handover")
+
+    import smolclaw.agent as ag
+
+    mock_client = AsyncMock(spec=ag.ClaudeSDKClient)
+    mock_client.query.side_effect = RuntimeError("agent crash")
+
+    with patch("smolclaw.agent.load_custom_tools", return_value=[]), \
+         patch("smolclaw.agent.ClaudeSDKClient", return_value=mock_client), \
+         patch("smolclaw.agent._make_options", return_value=MagicMock()):
+        try:
+            result = await ag.run(chat_id="handover-err", user_message="hi")
+            assert "wrong" in result.lower()  # sanitized error
+            assert (tmp_path / "handover.md").exists()  # NOT deleted
+        finally:
+            ag._sessions.pop("handover-err", None)
+            ag._session_locks.pop("handover-err", None)
+
+
+@pytest.mark.asyncio
+async def test_handover_deleted_after_success(tmp_path, monkeypatch):
+    """After a successful run, the handover file should be cleared."""
+    _patch_workspace(tmp_path, monkeypatch)
+    monkeypatch.setattr("smolclaw.workspace.HANDOVER", tmp_path / "handover.md")
+    (tmp_path / "handover.md").write_text("# Handover to clear")
+
+    import smolclaw.agent as ag
+
+    mock_client = AsyncMock(spec=ag.ClaudeSDKClient)
+    mock_client.receive_response.return_value = _make_fake_receive("Success!")()
+
+    with patch("smolclaw.agent.load_custom_tools", return_value=[]), \
+         patch("smolclaw.agent.ClaudeSDKClient", return_value=mock_client), \
+         patch("smolclaw.agent._make_options", return_value=MagicMock()):
+        try:
+            result = await ag.run(chat_id="handover-ok", user_message="hi")
+            assert "Success" in result
+            assert not (tmp_path / "handover.md").exists()  # deleted
+        finally:
+            ag._sessions.pop("handover-ok", None)
+            ag._session_locks.pop("handover-ok", None)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.5: Handover size cap
+# ---------------------------------------------------------------------------
+
+def test_oversized_handover_truncated_in_system_prompt(tmp_path, monkeypatch):
+    _patch_workspace(tmp_path, monkeypatch)
+    monkeypatch.setattr("smolclaw.workspace.HANDOVER", tmp_path / "handover.md")
+    big_content = "x" * 8000
+    (tmp_path / "handover.md").write_text(big_content)
+
+    from smolclaw.agent import _system_prompt
+    prompt = _system_prompt()
+    # The handover section should be truncated to 4000 chars
+    # Find the handover content in the prompt
+    assert "x" * 4000 in prompt
+    assert "x" * 4001 not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.6: Error sanitization
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_returns_generic_error_not_traceback(tmp_path, monkeypatch):
+    """run() should return a generic error message, not the raw exception."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    mock_client = AsyncMock(spec=ag.ClaudeSDKClient)
+    mock_client.query.side_effect = ValueError("secret internal detail")
+
+    with patch("smolclaw.agent.load_custom_tools", return_value=[]), \
+         patch("smolclaw.agent.ClaudeSDKClient", return_value=mock_client), \
+         patch("smolclaw.agent._make_options", return_value=MagicMock()):
+        try:
+            result = await ag.run(chat_id="error-test", user_message="hi")
+            assert "secret internal detail" not in result
+            assert "wrong" in result.lower() or "try again" in result.lower()
+        finally:
+            ag._sessions.pop("error-test", None)
+            ag._session_locks.pop("error-test", None)

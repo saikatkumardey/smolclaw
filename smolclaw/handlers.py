@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import random
 import re
 import shutil
 import sys
@@ -14,6 +13,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from . import workspace
+from .tools import MAX_TG_MSG
 from .agent import (
     AVAILABLE_MODELS,
     get_current_model,
@@ -36,11 +36,22 @@ def _to_telegram_md(text: str) -> str:
     return text
 
 
+def _classify_error(e: Exception) -> str:
+    """Return a user-friendly error message based on exception type."""
+    if isinstance(e, asyncio.TimeoutError):
+        return "Request timed out. Please try again."
+    if isinstance(e, PermissionError):
+        return "Permission denied. Check the logs."
+    if isinstance(e, ConnectionError):
+        return "Connection error. Check your network and try again."
+    return "Something went wrong. Check the logs."
+
+
 async def _reply_chunked(message, text: str) -> None:
-    """Send text in ≤4000-char chunks with Markdown, falling back to plain text."""
+    """Send text in ≤MAX_TG_MSG-char chunks with Markdown, falling back to plain text."""
     formatted = _to_telegram_md(text)
-    for i in range(0, max(len(formatted), 1), 4000):
-        chunk = formatted[i : i + 4000]
+    for i in range(0, max(len(formatted), 1), MAX_TG_MSG):
+        chunk = formatted[i : i + MAX_TG_MSG]
         try:
             await message.reply_text(chunk, parse_mode="Markdown")
         except Exception:
@@ -217,29 +228,48 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("Incoming [%s]: %s", chat_id, text[:80])
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     try:
-        draft_id = random.randint(1, 2**31 - 1)
-        last_draft: list[float] = [0.0]
+        preview_msg_id: list[int | None] = [None]
+        last_edit: list[float] = [0.0]
+        last_text: list[str] = [""]
 
         async def on_partial(partial: str) -> None:
-            now = asyncio.get_running_loop().time()
-            if now - last_draft[0] < 1.0:
+            snippet = _to_telegram_md(partial[:MAX_TG_MSG])
+            if snippet == last_text[0]:
                 return
-            last_draft[0] = now
+            now = asyncio.get_running_loop().time()
+            if now - last_edit[0] < 1.5:
+                return
+            last_edit[0] = now
+            last_text[0] = snippet
             try:
-                await context.bot.send_message_draft(
-                    chat_id=chat_id,
-                    draft_id=draft_id,
-                    text=partial[:4000],
-                )
+                if preview_msg_id[0] is None:
+                    msg = await context.bot.send_message(
+                        chat_id=chat_id, text=snippet + " ▍",
+                        parse_mode="Markdown",
+                    )
+                    preview_msg_id[0] = msg.message_id
+                else:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id, message_id=preview_msg_id[0],
+                        text=snippet + " ▍", parse_mode="Markdown",
+                    )
             except Exception:
                 pass
 
         reply = await agent_run(chat_id=chat_id, user_message=text, on_partial=on_partial)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
+
+        # Delete the streaming preview before sending the final reply
+        if preview_msg_id[0] is not None:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=preview_msg_id[0])
+            except Exception:
+                pass
+
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
-        await update.message.reply_text("Something went wrong. Check the logs.")
+        await update.message.reply_text(_classify_error(e))
 
 
 @require_allowed
@@ -261,7 +291,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling document: %s", e)
-        await update.message.reply_text("Something went wrong. Check the logs.")
+        await update.message.reply_text(_classify_error(e))
 
 
 @require_allowed
@@ -280,4 +310,4 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling photo: %s", e)
-        await update.message.reply_text("Something went wrong. Check the logs.")
+        await update.message.reply_text(_classify_error(e))
