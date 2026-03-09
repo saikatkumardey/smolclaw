@@ -55,24 +55,18 @@ Message **@userinfobot** on Telegram. It replies with your numeric user ID.
 smolclaw setup
 ```
 
-Asks for your bot token and Telegram user ID, saves them to `~/.smolclaw/.env`. Takes about two minutes.
+Asks for your bot token, Telegram user ID, and Claude auth. On Linux systems with systemd, also installs and enables the service automatically. Takes about two minutes.
 
-### 5. Authenticate with Claude
-
-```bash
-smolclaw setup-token
-```
-
-| Option | When to use |
-|--------|------------|
-| Paste API key | You have an [Anthropic API key](https://console.anthropic.com/settings/keys) |
-| Login with Claude account | You have Claude Pro / Max / Team |
-
-### 6. Start the bot
+### 5. Start the bot
 
 ```bash
-smolclaw start              # start in background (daemon)
-smolclaw start --foreground # run in terminal (useful for debugging)
+# If systemd service was installed (Linux):
+systemctl start smolclaw
+systemctl status smolclaw
+
+# Or manually:
+smolclaw start              # background daemon
+smolclaw start --foreground # foreground (useful for debugging)
 smolclaw logs               # view output
 smolclaw logs --follow      # stream live (Ctrl-C to stop)
 smolclaw stop               # stop the daemon
@@ -92,9 +86,11 @@ You:    hi
 Agent:  Hey! I'm your personal AI agent — I don't have a name yet, and I
         don't know yours either. What's your name?
 
-You:    Saikat, based in Singapore
-Agent:  Nice to meet you, Saikat! Singapore timezone — got it (SGT, UTC+8).
-        What kind of things would you like help with day-to-day?
+You:    Saikat, based in India
+Agent:  Nice to meet you, Saikat! What timezone are you in?
+
+You:    IST, UTC+5:30
+Agent:  Got it. What kind of things would you like help with day-to-day?
 
 You:    coding projects, research, and reminders
 Agent:  Perfect. What would you like to call me?
@@ -132,11 +128,11 @@ It writes what it learns to `USER.md`, `SOUL.md`, and `MEMORY.md` and carries th
 # → clones, reads docs, installs, writes a skill, confirms
 
 # Custom tools
-"build me a tool that checks the weather in Singapore"
+"build me a tool that checks the weather for my city"
 # → writes ~/.smolclaw/tools/get_weather.py, available on next message
 
 # Scheduled tasks
-"every morning at 8am SGT send me a summary of my top 3 priorities"
+"every morning at 8am send me a summary of my top 3 priorities"
 # → writes a cron job to crons.yaml
 ```
 
@@ -162,51 +158,65 @@ Override the workspace path with `SMOLCLAW_HOME=/path/to/dir`.
 ## Architecture
 
 ```
-  CLI (smolclaw start)
-         │  spawns child, writes ~/.smolclaw/.pid
+  systemd (Restart=always)
+         │  auto-restarts on crash or stop
+         ▼
+  smolclaw start --foreground
+         │  writes ~/.smolclaw/.pid
          │  stdout/stderr → ~/.smolclaw/smolclaw.log
          ▼
-  ┌─────────────────────────────────────────────────────┐
-  │                   main.py (daemon)                  │
-  │                                                     │
-  │   Telegram  ──►  handler  ──►  agent.run(chat_id)   │
-  │                                    │                │
-  │                              agent.py               │
-  │                    ClaudeSDKClient (one per chat)    │
-  │                              │                      │
-  │          ┌───────────────────┼──────────────────┐   │
-  │          │                   │                  │   │
-  │   Built-in tools      SDK tools (MCP)    Custom tools  │
-  │   Bash  Read  Write   telegram_send      ~/.smolclaw/  │
-  │   WebSearch  WebFetch save_handover      tools/*.py    │
-  │                       self_restart    (hot-reloaded)   │
-  │                       self_update                  │   │
-  │                       spawn_task                   │   │
-  │                              │                      │
-  │                        sub-agent                    │
-  │                    (isolated, timeout)              │
-  │                                                     │
-  │   scheduler.py ──► crons.yaml ──► agent.run ──► Telegram │
-  └─────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────┐
+  │                  main.py  (daemon)                   │
+  │                                                      │
+  │  Telegram ──► handlers.py ──► agent.run(chat_id)     │
+  │                                     │                │
+  │                               agent.py               │
+  │                     ClaudeSDKClient (one per chat)    │
+  │                               │                      │
+  │          ┌────────────────────┼─────────────────┐    │
+  │          │                    │                  │    │
+  │   Built-in tools        MCP tools          Custom tools │
+  │   Bash  Read  Write     telegram_send      tools/*.py   │
+  │   WebSearch  WebFetch   spawn_task         (hot-reload) │
+  │   Glob  Grep            save_handover                │  │
+  │                         self_restart                 │  │
+  │                         self_update                  │  │
+  │                               │                      │  │
+  │                          spawn_task                  │  │
+  │                               │                      │  │
+  │                          sub-agent                   │  │
+  │                      (isolated, background)          │  │
+  │                      result → Telegram               │  │
+  │                                                      │  │
+  │  scheduler.py ──► crons.yaml ──► agent.run ──► Telegram │
+  └──────────────────────────────────────────────────────┘
 
   ~/.smolclaw/
-  ├── .env              ← secrets (token, API key)
+  ├── .env              ← secrets (bot token, API key)
   ├── .pid              ← daemon PID
   ├── smolclaw.log      ← stdout/stderr log
-  ├── SOUL.md           ← agent identity
-  ├── USER.md           ← your profile (name, timezone, prefs)
-  ├── MEMORY.md         ← persistent memory across sessions
-  ├── HEARTBEAT.md      ← instructions for the 30-min cron
-  ├── crons.yaml        ← scheduled jobs
-  ├── handover.md       ← state across restarts (read once, deleted)
   ├── smolclaw.json     ← runtime config (model, timeouts)
-  ├── skills/*/SKILL.md ← injected into system prompt on demand
-  ├── tools/*.py        ← custom tools (hot-reloaded)
+  ├── SOUL.md           ← agent identity and operating instructions
+  ├── USER.md           ← your profile (name, timezone, preferences)
+  ├── MEMORY.md         ← long-term memory, persists across sessions
+  ├── HEARTBEAT.md      ← instructions for the 30-min heartbeat cron
+  ├── crons.yaml        ← scheduled jobs (loaded on startup)
+  ├── handover.md       ← state snapshot across restarts (read once, deleted)
+  ├── skills/           ← per-skill SKILL.md files, injected at session start
+  ├── tools/            ← custom tools as .py files (SCHEMA + execute())
   ├── sessions/         ← JSONL conversation logs by date
+  ├── memory/           ← daily notes and long-form memory files
   └── uploads/          ← files sent via Telegram
 ```
 
-Sessions persist per `chat_id` for multi-turn context. Custom tools are `.py` files with `SCHEMA` + `execute()` — drop them in and they're available on the next message, no restart needed. Skills (`~/.smolclaw/skills/*/SKILL.md`) are injected into the system prompt when the session starts.
+**How it hangs together:**
+
+- **systemd** manages the process lifecycle. `smolclaw setup` writes the service file with `Restart=always` so the agent recovers from crashes automatically.
+- **scheduler.py** reads `crons.yaml` on startup and registers all jobs in-process. Each job runs as a short agent session and can send Telegram messages.
+- **agent.py** holds one `ClaudeSDKClient` per chat. Sessions persist across messages for multi-turn context.
+- **Custom tools** are `.py` files with a `SCHEMA` dict and `execute()` function. Drop one in `tools/` and it's available on the next message — no restart needed.
+- **Skills** are markdown files in `skills/*/SKILL.md`. They're injected into the system prompt at session start, so the agent knows how to use installed CLIs, APIs, or workflows you've taught it.
+- **spawn_task** runs a fully isolated sub-agent in the background. It returns immediately; results arrive via Telegram when the task completes. Use it for anything that would take more than a few tool calls.
 
 ---
 
