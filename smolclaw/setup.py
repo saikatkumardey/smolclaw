@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -355,6 +356,72 @@ def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
     console.print()
 
 
+# ── Systemd Service Generation ────────────────────────────────────────────────
+
+_SERVICE_TEMPLATE = """\
+[Unit]
+Description=SmolClaw Telegram AI Agent
+After=network.target
+
+[Service]
+Type=simple
+User={current_user}
+WorkingDirectory={workspace_home}
+EnvironmentFile={workspace_home}/.env
+ExecStart={smolclaw_binary} start --foreground
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+_SERVICE_PATH = Path("/etc/systemd/system/smolclaw.service")
+_SYSTEMD_RUNTIME = Path("/run/systemd/system")
+
+
+def _install_systemd_service(workspace_home: Path) -> None:
+    """Generate and install the systemd service file if systemd is available."""
+    if not _SYSTEMD_RUNTIME.exists():
+        return  # Not a systemd system — skip silently
+
+    current_user = getpass.getuser()
+    smolclaw_binary = shutil.which("smolclaw") or sys.executable
+
+    service_content = _SERVICE_TEMPLATE.format(
+        current_user=current_user,
+        workspace_home=workspace_home,
+        smolclaw_binary=smolclaw_binary,
+    )
+
+    try:
+        _SERVICE_PATH.write_text(service_content)
+        subprocess.run(
+            ["systemctl", "daemon-reload"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["systemctl", "enable", "smolclaw"],
+            check=True,
+            capture_output=True,
+        )
+        _success("Systemd service installed. Run 'systemctl start smolclaw' to start.")
+    except (PermissionError, OSError, subprocess.CalledProcessError) as exc:
+        _warn(f"Could not install systemd service automatically ({exc}).")
+        _warn("To install manually, save the following to /etc/systemd/system/smolclaw.service")
+        _warn("then run: systemctl daemon-reload && systemctl enable smolclaw")
+        console.print()
+        console.print(Panel(
+            service_content,
+            title="[dim]smolclaw.service[/dim]",
+            border_style="dim yellow",
+            padding=(0, 2),
+        ))
+
+
 # ── Main Entry Point ──────────────────────────────────────────────────────────
 
 def run() -> None:
@@ -421,3 +488,6 @@ def run() -> None:
 
     # ── Final summary ─────────────────────────────────────────────────────
     _print_summary(env, workspace.HOME)
+
+    # ── Systemd service installation ──────────────────────────────────────
+    _install_systemd_service(workspace.HOME)
