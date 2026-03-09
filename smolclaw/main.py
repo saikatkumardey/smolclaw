@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import re
 import shutil
 import sys
@@ -447,35 +448,27 @@ def start(
         logger.info("Incoming [{}]: {}", chat_id, text[:80])
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         try:
-            # Send a placeholder; edit it in-place as partial text arrives
-            sent = await update.message.reply_text("…")
-            last_edit: list[float] = [0.0]  # mutable for closure
+            draft_id = random.randint(1, 2**31 - 1)
+            last_draft: list[float] = [0.0]  # mutable for closure
 
             async def on_partial(partial: str) -> None:
                 now = asyncio.get_running_loop().time()
-                if now - last_edit[0] < 1.5:
+                if now - last_draft[0] < 1.0:
                     return
-                last_edit[0] = now
+                last_draft[0] = now
                 try:
-                    await sent.edit_text(_to_telegram_md(partial[:4000]), parse_mode="Markdown")
+                    await context.bot.send_message_draft(
+                        chat_id=chat_id,
+                        draft_id=draft_id,
+                        text=partial[:4000],
+                    )
                 except Exception:
                     pass
 
             reply = await agent_run(chat_id=chat_id, user_message=text, on_partial=on_partial)
             logger.info("Reply [{}]: {}", chat_id, reply[:80])
-            # Final edit of first chunk, then reply for overflow
-            formatted = _to_telegram_md(reply)
-            first, rest = formatted[:4000], formatted[4000:]
-            try:
-                await sent.edit_text(first, parse_mode="Markdown")
-            except Exception:
-                await sent.edit_text(first)
-            for i in range(0, len(rest), 4000):
-                chunk = rest[i : i + 4000]
-                try:
-                    await update.message.reply_text(chunk, parse_mode="Markdown")
-                except Exception:
-                    await update.message.reply_text(chunk)
+            # Send final reply (clears draft), then overflow chunks
+            await _reply_chunked(update.message, reply)
         except Exception as e:
             logger.exception("Error handling message: {}", e)
             await update.message.reply_text("Something went wrong. Check the logs.")
