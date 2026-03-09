@@ -37,8 +37,10 @@ async def self_restart(args: dict) -> dict:
     if chat_id := default_chat_id():
         await asyncio.to_thread(_send_telegram, chat_id, "Restarting…")
     exe = shutil.which("smolclaw") or sys.argv[0]
-    argv = [exe] + sys.argv[1:] if sys.argv[1:] else [exe, "start", "--foreground"]
-    os.execv(exe, argv)
+    base = sys.argv[1:] if sys.argv[1:] else ["start"]
+    if "--foreground" not in base and "-f" not in base:
+        base = base + ["--foreground"]
+    os.execv(exe, [exe] + base)
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
@@ -60,8 +62,10 @@ async def self_update(args: dict) -> dict:
     if chat_id:
         await asyncio.to_thread(_send_telegram, chat_id, "✓ Update successful. Restarting…")
     exe = shutil.which("smolclaw") or sys.argv[0]
-    argv = [exe] + sys.argv[1:] if sys.argv[1:] else [exe, "start", "--foreground"]
-    os.execv(exe, argv)
+    base = sys.argv[1:] if sys.argv[1:] else ["start"]
+    if "--foreground" not in base and "-f" not in base:
+        base = base + ["--foreground"]
+    os.execv(exe, [exe] + base)
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
