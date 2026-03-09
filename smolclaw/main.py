@@ -544,29 +544,33 @@ def start(
         bot.add_handler(MessageHandler(filters.PHOTO, on_photo))
         bot.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
-        # Register commands so they appear in Telegram's "/" menu
-        from telegram import BotCommand
-        asyncio.run(bot.bot.set_my_commands([
-            BotCommand("start",   "Wake the bot"),
-            BotCommand("help",    "Show available commands"),
-            BotCommand("status",  "Show model, workspace, tool counts"),
-            BotCommand("model",   "Show current Claude model"),
-            BotCommand("models",  "Switch Claude model"),
-            BotCommand("reset",   "Clear conversation history"),
-            BotCommand("cancel",  "Cancel the current running task"),
-            BotCommand("reload",  "Reload skills and memory"),
-            BotCommand("restart", "Restart the bot process"),
-        ]))
-
         scheduler = setup_scheduler()
-        scheduler.start()
 
-        # Notify user on startup (confirms restart/update completed)
-        default_chat = os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
-        if default_chat:
-            from .handover import exists as handover_exists
-            msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
-            asyncio.run(bot.bot.send_message(chat_id=default_chat, text=msg))
+        # post_init runs inside the running event loop — safe for async calls
+        async def _post_init(app) -> None:
+            from telegram import BotCommand
+            await app.bot.set_my_commands([
+                BotCommand("start",   "Wake the bot"),
+                BotCommand("help",    "Show available commands"),
+                BotCommand("status",  "Show model, workspace, tool counts"),
+                BotCommand("model",   "Show current Claude model"),
+                BotCommand("models",  "Switch Claude model"),
+                BotCommand("reset",   "Clear conversation history"),
+                BotCommand("cancel",  "Cancel the current running task"),
+                BotCommand("reload",  "Reload skills and memory"),
+                BotCommand("restart", "Restart the bot process"),
+            ])
+            scheduler.start()
+            default_chat = os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
+            if default_chat:
+                from .handover import exists as handover_exists
+                msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
+                try:
+                    await app.bot.send_message(chat_id=default_chat, text=msg)
+                except Exception:
+                    pass
+
+        bot.post_init = _post_init
 
         # Graceful shutdown hook — runs after run_polling() exits cleanly
         async def _post_shutdown(app) -> None:
