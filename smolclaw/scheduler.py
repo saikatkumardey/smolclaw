@@ -10,14 +10,11 @@ from apscheduler.triggers.cron import CronTrigger
 
 from .tools import TelegramSender
 from . import workspace
+from .auth import default_chat_id
 
 _telegram = TelegramSender()
 
 from loguru import logger
-
-
-def _default_chat() -> str:
-    return os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
 
@@ -51,7 +48,7 @@ def setup_scheduler() -> BackgroundScheduler:
         if missing:
             logger.warning("Skipping cron job — missing fields: %s", missing)
             continue
-        deliver_to = job.get("deliver_to") or _default_chat()
+        deliver_to = job.get("deliver_to") or default_chat_id()
         is_heartbeat = bool(job.get("heartbeat", False))
         try:
             scheduler.add_job(
