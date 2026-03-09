@@ -39,7 +39,7 @@ def execute(city: str) -> str:
 - Tell the user what tool you built and how to use it.
 ## Calling Claude from a script
 
-Never use the Anthropic Python SDK — no API key is configured. Use the `claude` CLI instead:
+If no `ANTHROPIC_API_KEY` is configured (e.g. subscription auth flow), use the `claude` CLI instead of the SDK:
 
 ```python
 import subprocess, os
