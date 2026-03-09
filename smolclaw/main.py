@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -192,10 +193,34 @@ def doctor() -> None:
 
 
 @app.command()
-def start() -> None:
-    """Start the Telegram bot."""
+def start(
+    foreground: bool = typer.Option(False, "--foreground", "-f", help="Run in foreground (blocking)."),
+) -> None:
+    """Start the Telegram bot (daemonizes by default)."""
     from . import workspace
     workspace.init()
+
+    if not foreground:
+        from .daemon import is_running, write_pid
+        running, pid = is_running()
+        if running:
+            typer.echo(f"SmolClaw is already running (PID {pid}). Use 'smolclaw restart' to restart.")
+            raise typer.Exit(1)
+
+        import subprocess
+        exe = shutil.which("smolclaw") or sys.argv[0]
+        log_path = workspace.LOG_FILE
+        with open(log_path, "a") as log_fh:
+            proc = subprocess.Popen(
+                [exe, "start", "--foreground"],
+                stdout=log_fh,
+                stderr=log_fh,
+                start_new_session=True,
+            )
+        write_pid(proc.pid)
+        typer.echo(f"SmolClaw started (PID {proc.pid}). Run 'smolclaw logs' to view output.")
+        return
+
     load_dotenv(workspace.HOME / ".env", override=True)
     from .config import Config
     cfg = Config.load()
@@ -399,8 +424,7 @@ def start() -> None:
             _sched.shutdown(wait=False)
         except Exception:
             pass
-        import shutil as _shutil
-        exe = _shutil.which("smolclaw") or sys.argv[0]
+        exe = shutil.which("smolclaw") or sys.argv[0]
         argv = [exe, "start"] if len(sys.argv) < 2 else [exe] + sys.argv[1:]
         os.execv(exe, argv)
 
@@ -520,32 +544,29 @@ def start() -> None:
         bot.add_handler(MessageHandler(filters.PHOTO, on_photo))
         bot.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
-        scheduler = setup_scheduler()
-
-        # post_init runs inside run_polling()'s event loop — safe to use async bot calls here
+        # Register commands so they appear in Telegram's "/" menu
         from telegram import BotCommand
+        asyncio.run(bot.bot.set_my_commands([
+            BotCommand("start",   "Wake the bot"),
+            BotCommand("help",    "Show available commands"),
+            BotCommand("status",  "Show model, workspace, tool counts"),
+            BotCommand("model",   "Show current Claude model"),
+            BotCommand("models",  "Switch Claude model"),
+            BotCommand("reset",   "Clear conversation history"),
+            BotCommand("cancel",  "Cancel the current running task"),
+            BotCommand("reload",  "Reload skills and memory"),
+            BotCommand("restart", "Restart the bot process"),
+        ]))
 
-        async def _post_init(app) -> None:
-            await app.bot.set_my_commands([
-                BotCommand("start",   "Wake the bot"),
-                BotCommand("help",    "Show available commands"),
-                BotCommand("status",  "Show model, workspace, tool counts"),
-                BotCommand("model",   "Show current Claude model"),
-                BotCommand("models",  "Switch Claude model"),
-                BotCommand("reset",   "Clear conversation history"),
-                BotCommand("cancel",  "Cancel the current running task"),
-                BotCommand("reload",  "Reload skills and memory"),
-                BotCommand("restart", "Restart the bot process"),
-            ])
-            scheduler.start()
-            # Notify user on startup (confirms restart/update completed)
-            default_chat = os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
-            if default_chat:
-                from .handover import exists as handover_exists
-                msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
-                await app.bot.send_message(chat_id=default_chat, text=msg)
+        scheduler = setup_scheduler()
+        scheduler.start()
 
-        bot.post_init = _post_init
+        # Notify user on startup (confirms restart/update completed)
+        default_chat = os.getenv("ALLOWED_USER_IDS", "").split(",")[0].strip()
+        if default_chat:
+            from .handover import exists as handover_exists
+            msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
+            asyncio.run(bot.bot.send_message(chat_id=default_chat, text=msg))
 
         # Graceful shutdown hook — runs after run_polling() exits cleanly
         async def _post_shutdown(app) -> None:
@@ -556,6 +577,8 @@ def start() -> None:
             except Exception:
                 pass
             scheduler.shutdown(wait=False)
+            from .daemon import delete_pid
+            delete_pid()
             logger.info("SmolClaw stopped.")
 
         bot.post_shutdown = _post_shutdown
@@ -571,6 +594,66 @@ def start() -> None:
         else:
             typer.echo(f"Failed to start bot: {e}")
         raise typer.Exit(1)
+
+
+@app.command()
+def stop() -> None:
+    """Stop the running SmolClaw daemon."""
+    from .daemon import read_pid, stop_daemon
+    pid = read_pid()  # for display; stop_daemon re-checks liveness
+    if stop_daemon():
+        typer.echo(f"Stopped (PID {pid})." if pid else "Stopped.")
+    else:
+        typer.echo("SmolClaw is not running.")
+        raise typer.Exit(1)
+
+
+@app.command()
+def restart() -> None:
+    """Restart the SmolClaw daemon."""
+    from .daemon import is_running, stop_daemon
+    running, pid = is_running()
+    if running:
+        typer.echo(f"Stopping SmolClaw (PID {pid})...")
+        if not stop_daemon():
+            typer.echo("Failed to stop SmolClaw. Aborting restart.")
+            raise typer.Exit(1)
+        typer.echo(f"Stopped (PID {pid}).")
+    start(foreground=False)
+
+
+@app.command()
+def logs(
+    follow: bool = typer.Option(False, "--follow", "-f", help="Stream log file live."),
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show."),
+) -> None:
+    """Show SmolClaw logs."""
+    from . import workspace
+    log_path = workspace.LOG_FILE
+    if not log_path.exists():
+        typer.echo("No log file found. Has SmolClaw been started?")
+        raise typer.Exit(1)
+
+    if not follow:
+        import collections
+        with open(log_path) as f:
+            last = collections.deque(f, maxlen=lines)
+        typer.echo("".join(last), nl=False)
+        return
+
+    # Follow mode: seek to end then stream new lines
+    import time as _time
+    with open(log_path) as f:
+        f.seek(0, 2)  # seek to end
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    typer.echo(line, nl=False)
+                else:
+                    _time.sleep(0.2)
+        except KeyboardInterrupt:
+            pass
 
 
 def main() -> None:
