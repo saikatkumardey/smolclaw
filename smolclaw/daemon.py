@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
 import time
 
 from .workspace import PID_FILE
@@ -26,6 +27,19 @@ def delete_pid() -> None:
     PID_FILE.unlink(missing_ok=True)
 
 
+def _is_smolclaw_process(pid: int) -> bool:
+    """Best-effort check that pid belongs to a smolclaw process."""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "smolclaw" in result.stdout.lower()
+    except (OSError, subprocess.TimeoutExpired):
+        # If ps fails, assume it could be smolclaw (don't delete PID)
+        return True
+
+
 def is_running() -> tuple[bool, int | None]:
     """Return (True, pid) if daemon is alive, (False, None) otherwise."""
     pid = read_pid()
@@ -33,12 +47,18 @@ def is_running() -> tuple[bool, int | None]:
         return False, None
     try:
         os.kill(pid, 0)
-        return True, pid
     except ProcessLookupError:
+        delete_pid()
         return False, None
     except PermissionError:
         # Process exists but owned by another user — treat as running.
         return True, pid
+
+    # PID is alive — verify it's actually smolclaw
+    if not _is_smolclaw_process(pid):
+        delete_pid()
+        return False, None
+    return True, pid
 
 
 def stop_daemon(timeout: int = 10) -> bool:
