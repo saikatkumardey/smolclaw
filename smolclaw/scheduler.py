@@ -30,7 +30,7 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
         if heartbeat and HEARTBEAT_OK in result:
             logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
             return
-        if deliver_to:
+        if deliver_to and result != "(no response)":
             _telegram.send(chat_id=deliver_to, message=result)
     except Exception as e:
         logger.error("Cron {} failed: {}", job_id, e)
