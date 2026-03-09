@@ -237,7 +237,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             if snippet == last_text[0]:
                 return
             now = asyncio.get_running_loop().time()
-            if now - last_edit[0] < 1.5:
+            if now - last_edit[0] < 0.5:
                 return
             last_edit[0] = now
             last_text[0] = snippet
