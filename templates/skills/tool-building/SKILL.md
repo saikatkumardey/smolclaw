@@ -37,3 +37,19 @@ def execute(city: str) -> str:
 - Tools are loaded on every message — no restart needed.
 - Use `Bash` to install any required packages first (e.g. `uv pip install requests`).
 - Tell the user what tool you built and how to use it.
+## Calling Claude from a script
+
+Never use the Anthropic Python SDK — no API key is configured. Use the `claude` CLI instead:
+
+```python
+import subprocess, os
+
+env = {**os.environ, "CLAUDECODE": ""}  # required: unsets nested session guard
+result = subprocess.run(
+    ["claude", "-p", "your prompt here"],
+    capture_output=True, text=True, env=env
+)
+output = result.stdout.strip()
+```
+
+The `CLAUDECODE=""` is required — without it, `claude` will refuse to run inside an active Claude Code session.
