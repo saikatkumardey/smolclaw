@@ -185,6 +185,13 @@ def update() -> None:
 
 
 @app.command()
+def doctor() -> None:
+    """Check workspace health: files, auth, tools, and state."""
+    from .doctor import run
+    raise typer.Exit(run())
+
+
+@app.command()
 def start() -> None:
     """Start the Telegram bot."""
     from . import workspace
