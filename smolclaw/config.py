@@ -6,8 +6,8 @@ from typing import Any
 
 from . import workspace
 
-# Cache: (file_mtime, Config instance)
-_cache: tuple[float, "Config"] | None = None
+# Cache: (file_path, file_mtime, Config instance)
+_cache: tuple[str, float, "Config"] | None = None
 
 
 class Config:
@@ -35,7 +35,7 @@ class Config:
             raise TypeError(f"{key!r} must be {expected.__name__}, got {type(value).__name__}")
         self._data[key] = value
         self._save()
-        _cache = None  # Invalidate cache on write
+        _cache = None  # invalidate on write
 
     def to_dict(self) -> dict:
         return dict(self._data)
@@ -46,15 +46,16 @@ class Config:
     @classmethod
     def load(cls) -> "Config":
         global _cache
+        path = workspace.CONFIG
         try:
-            mtime = workspace.CONFIG.stat().st_mtime
+            mtime = path.stat().st_mtime
         except OSError:
             mtime = 0.0
 
-        if _cache is not None and _cache[0] == mtime:
-            return _cache[1]
+        if _cache is not None and _cache[0] == str(path) and _cache[1] == mtime:
+            return _cache[2]
 
-        data = workspace.read_json(workspace.CONFIG)
+        data = workspace.read_json(path)
 
         # Migration: pick up env vars if smolclaw.json is missing those keys
         if "model" not in data:
@@ -75,5 +76,5 @@ class Config:
         merged.update(data)
 
         instance = cls(merged)
-        _cache = (mtime, instance)
+        _cache = (str(path), mtime, instance)
         return instance
