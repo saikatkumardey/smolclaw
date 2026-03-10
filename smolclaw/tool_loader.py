@@ -13,6 +13,9 @@ from loguru import logger
 
 _known_tool_files: set[str] = set()
 
+# mtime-based cache: path -> (mtime, SdkMcpTool)
+_tool_cache: dict[str, tuple[float, SdkMcpTool]] = {}
+
 
 def _make_sdk_tool(name: str, desc: str, properties: dict, required: list, execute_fn) -> SdkMcpTool:
     """
@@ -39,6 +42,7 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
         execute        — callable(**kwargs) -> str
 
     Wraps each as an SDK @tool function and returns the list.
+    Modules are cached by mtime and only reloaded when the file changes.
     """
     if tools_dir is None:
         from . import workspace
@@ -49,6 +53,19 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
         return tool_list
 
     for path in sorted(tools_dir.glob("*.py")):
+        str_path = str(path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+
+        # Return cached tool if file hasn't changed
+        if str_path in _tool_cache:
+            cached_mtime, cached_tool = _tool_cache[str_path]
+            if mtime == cached_mtime:
+                tool_list.append(cached_tool)
+                continue
+
         if path.name not in _known_tool_files:
             logger.warning("New tool file detected: %s — loaded without integrity check", path.name)
             _known_tool_files.add(path.name)
@@ -69,6 +86,7 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
             required_params = params.get("required", [])
 
             sdk_tool = _make_sdk_tool(tool_name, tool_desc, properties, required_params, mod.execute)
+            _tool_cache[str_path] = (mtime, sdk_tool)
             tool_list.append(sdk_tool)
             logger.info("Loaded custom tool: %s", tool_name)
 
