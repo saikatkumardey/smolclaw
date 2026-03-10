@@ -241,10 +241,12 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
         description = args["task"][:80]
 
         opts = ClaudeAgentOptions(
+            model=cfg.get("model"),
             allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch", "mcp__smolclaw__telegram_send"],
             mcp_servers={"smolclaw": subagent_mcp},
             permission_mode="acceptEdits",
             max_turns=subagent_max_turns,
+            cwd=str(workspace.HOME),
         )
 
         async def _run() -> None:

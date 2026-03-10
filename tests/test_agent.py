@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
 import pytest
 
@@ -214,3 +214,38 @@ async def test_run_returns_generic_error_not_traceback(tmp_path, monkeypatch):
         finally:
             ag._sessions.pop("error-test", None)
             ag._session_locks.pop("error-test", None)
+
+
+# ---------------------------------------------------------------------------
+# spawn_task sub-agent initialization
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_spawn_task_passes_model_and_cwd_to_subagent(tmp_path, monkeypatch):
+    """spawn_task must pass model and cwd to the sub-agent ClaudeAgentOptions."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+    from smolclaw.config import Config
+
+    cfg = Config.load()
+    spawn_tool = ag._make_spawn_task_tool("test-chat", cfg)
+
+    captured_opts = {}
+
+    async def fake_query(prompt, options):
+        captured_opts["model"] = options.model
+        captured_opts["cwd"] = options.cwd
+        # Yield nothing — sub-agent produces no output
+        return
+        yield  # make it an async generator
+
+    with patch("smolclaw.agent.query", fake_query), \
+         patch("smolclaw.tools._send_telegram"):
+        result = await spawn_tool.handler({"task": "say hello"})
+        # Let the background task run
+        await asyncio.sleep(0.1)
+
+    assert captured_opts.get("model") == cfg.get("model"), \
+        f"Sub-agent model should be {cfg.get('model')!r}, got {captured_opts.get('model')!r}"
+    assert captured_opts.get("cwd") == str(tmp_path), \
+        f"Sub-agent cwd should be {str(tmp_path)!r}, got {captured_opts.get('cwd')!r}"
