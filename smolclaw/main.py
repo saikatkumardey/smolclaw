@@ -244,6 +244,7 @@ def start(
         bot.add_handler(CommandHandler("models", h.on_models))
         bot.add_handler(CommandHandler("reset", h.on_reset))
         bot.add_handler(CommandHandler("cancel", h.on_cancel))
+        bot.add_handler(CommandHandler("tasks", h.on_tasks))
         bot.add_handler(CommandHandler("reload", h.on_reload))
         bot.add_handler(CommandHandler("restart", h.on_restart))
         bot.add_handler(CommandHandler("update", h.on_update))
@@ -265,6 +266,7 @@ def start(
                 BotCommand("models",  "Switch Claude model"),
                 BotCommand("reset",   "Clear conversation history"),
                 BotCommand("cancel",  "Cancel the current running task"),
+                BotCommand("tasks",   "List background tasks"),
                 BotCommand("reload",  "Reload skills and memory"),
                 BotCommand("restart", "Restart the bot process"),
             ])

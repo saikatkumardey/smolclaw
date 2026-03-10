@@ -19,6 +19,7 @@ from .agent import (
     get_current_model,
     get_last_result,
     interrupt_session,
+    list_tasks,
     reset_session,
     run as agent_run,
     session_log,
@@ -147,6 +148,20 @@ async def on_reload(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = str(update.effective_chat.id)
     await reset_session(chat_id)
     await update.message.reply_text("Reloaded. Next message picks up fresh skills and memory.")
+
+
+
+@require_allowed
+async def on_tasks(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    tasks = list_tasks()
+    if not tasks:
+        await update.message.reply_text("No background tasks.")
+        return
+    lines = []
+    for t in tasks:
+        icon = "running" if t["status"] == "running" else t["status"]
+        lines.append(f"{t['id']} [{icon}] {t['elapsed_s']}s — {t['description']}")
+    await update.message.reply_text("\n".join(lines))
 
 
 @require_allowed
