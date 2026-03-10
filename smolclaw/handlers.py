@@ -75,6 +75,8 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/model — show current Claude model\n"
         "/models — switch Claude model\n"
         "/reset — clear conversation history\n"
+        "/cancel — cancel the current running task\n"
+        "/reload — reload skills and memory\n"
         "/restart — restart the bot process\n\n"
         "Or just talk to me."
     )
@@ -142,7 +144,9 @@ async def on_cancel(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_reload(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Memory and skills reloaded.")
+    chat_id = str(update.effective_chat.id)
+    await reset_session(chat_id)
+    await update.message.reply_text("Reloaded. Next message picks up fresh skills and memory.")
 
 
 @require_allowed
