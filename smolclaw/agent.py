@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
 from collections import defaultdict
 from collections.abc import Callable, Awaitable
 from dataclasses import dataclass, field
@@ -31,8 +32,8 @@ from .handover import load as handover_load, clear as handover_clear, exists as 
 
 from loguru import logger
 
-# Keeps fire-and-forget tasks alive until completion (prevents GC mid-run)
-_background_tasks: set[asyncio.Task] = set()
+# Task registry: task_id -> {task, description, started_at, status}
+_task_registry: dict[str, dict] = {}
 
 # Available Claude models: (model_id, display_label)
 AVAILABLE_MODELS: list[tuple[str, str]] = [
@@ -91,6 +92,22 @@ def get_last_result(chat_id: str) -> ResultMessage | None:
     if session := _sessions.get(chat_id):
         return session.last_result
     return None
+
+
+
+def list_tasks() -> list[dict]:
+    """Return summary of all tracked background tasks."""
+    import time
+    rows = []
+    for tid, info in _task_registry.items():
+        elapsed = int(time.time() - info["started_at"])
+        rows.append({
+            "id": tid,
+            "status": "running" if not info["task"].done() else info.get("status", "done"),
+            "description": info["description"][:60],
+            "elapsed_s": elapsed,
+        })
+    return rows
 
 
 def session_log(chat_id: str, role: str, content: str | dict) -> None:
@@ -194,24 +211,40 @@ def _system_prompt() -> str:
 
 
 def _make_spawn_task_tool(chat_id: str, cfg: Config):
-    """Build spawn_task as a fire-and-forget closure. Result delivered via telegram_send."""
+    """Build spawn_task with task registry and progress-capable sub-agents."""
     from .tools import _send_telegram
+    import time
 
     subagent_timeout = cfg.get("subagent_timeout")
     subagent_max_turns = cfg.get("subagent_max_turns")
 
+    # Build a minimal telegram_send tool for sub-agents so they can report progress
+    @tool("telegram_send", "Send a Telegram message to report progress or results.", {"message": str})
+    async def _subagent_telegram_send(args: dict) -> dict:
+        await asyncio.to_thread(_send_telegram, chat_id, args["message"])
+        return {"content": [{"type": "text", "text": "Sent."}]}
+
+    subagent_mcp = create_sdk_mcp_server(
+        name="smolclaw", version="1.0.0", tools=[_subagent_telegram_send]
+    )
+
     @tool(
         "spawn_task",
         (
-            "Run an isolated sub-agent task in the background. Returns immediately. "
+            "Run an isolated sub-agent task in the background. Returns a task ID immediately. "
             "Result is delivered to the user via Telegram when done. "
+            "The sub-agent has access to telegram_send to report progress mid-task. "
             "Use for any task requiring more than 3 tool calls."
         ),
         {"task": str},
     )
     async def spawn_task(args: dict) -> dict:
+        task_id = uuid.uuid4().hex[:8]
+        description = args["task"][:80]
+
         opts = ClaudeAgentOptions(
-            allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch"],
+            allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch", "mcp__smolclaw__telegram_send"],
+            mcp_servers={"smolclaw": subagent_mcp},
             permission_mode="acceptEdits",
             max_turns=subagent_max_turns,
         )
@@ -226,16 +259,23 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
                                 if isinstance(block, TextBlock):
                                     parts.append(block.text)
                 result = "\n".join(parts) or "(no output)"
+                _task_registry[task_id]["status"] = "done"
             except asyncio.TimeoutError:
-                result = "Task timed out."
+                result = f"Task {task_id} timed out."
+                _task_registry[task_id]["status"] = "timed_out"
             except Exception as e:
-                result = f"Task failed: {e}"
+                result = f"Task {task_id} failed: {e}"
+                _task_registry[task_id]["status"] = "failed"
             await asyncio.to_thread(_send_telegram, chat_id, result)
 
         task = asyncio.create_task(_run())
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-        return {"content": [{"type": "text", "text": "Task started in the background. I'll message you when it's done."}]}
+        _task_registry[task_id] = {
+            "task": task,
+            "description": description,
+            "started_at": time.time(),
+            "status": "running",
+        }
+        return {"content": [{"type": "text", "text": f"Task started (ID: {task_id}). I'll message you when it's done."}]}
 
     return spawn_task
 
