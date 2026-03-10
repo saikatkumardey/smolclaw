@@ -9,22 +9,29 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def _mock_post(ok=True, text="Unauthorized"):
+def _mock_httpx_client(ok=True, text="Unauthorized"):
+    """Return a mock httpx.Client class simulating a context manager."""
     resp = MagicMock()
-    resp.ok = ok
+    resp.is_success = ok
     resp.text = text
-    return resp
+
+    client = MagicMock()
+    client.post.return_value = resp
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
+
+    return MagicMock(return_value=client)
 
 
 def test_telegram_sender_success():
     from smolclaw.tools import TelegramSender
-    with patch("smolclaw.tools.requests.post", return_value=_mock_post(ok=True)):
+    with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=True)):
         assert TelegramSender().send(chat_id="123", message="hi") == "Sent."
 
 
 def test_telegram_sender_failure():
     from smolclaw.tools import TelegramSender
-    with patch("smolclaw.tools.requests.post", return_value=_mock_post(ok=False)):
+    with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=False)):
         assert "Failed" in TelegramSender().send(chat_id="123", message="hi")
 
 
@@ -41,7 +48,7 @@ def test_save_handover_writes_file(tmp_path, monkeypatch):
 def test_telegram_send_sdk_success(monkeypatch):
     monkeypatch.setenv("ALLOWED_USER_IDS", "123")
     from smolclaw.tools_sdk import telegram_send
-    with patch("smolclaw.tools.requests.post", return_value=_mock_post(ok=True)):
+    with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=True)):
         result = asyncio.run(telegram_send.handler({"chat_id": "123", "message": "hi"}))
     assert result["content"][0]["text"] == "Sent."
 
@@ -49,6 +56,6 @@ def test_telegram_send_sdk_success(monkeypatch):
 def test_telegram_send_sdk_failure(monkeypatch):
     monkeypatch.setenv("ALLOWED_USER_IDS", "123")
     from smolclaw.tools_sdk import telegram_send
-    with patch("smolclaw.tools.requests.post", return_value=_mock_post(ok=False)):
+    with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=False)):
         result = asyncio.run(telegram_send.handler({"chat_id": "123", "message": "hi"}))
     assert "Failed" in result["content"][0]["text"]
