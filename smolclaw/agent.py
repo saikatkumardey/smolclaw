@@ -4,9 +4,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -20,7 +20,6 @@ from claude_agent_sdk import (
     create_sdk_mcp_server,
     tool,
 )
-from claude_agent_sdk.types import StreamEvent
 
 from .skills import load_skills
 from .tool_loader import load_custom_tools
@@ -97,7 +96,6 @@ def get_last_result(chat_id: str) -> ResultMessage | None:
 
 def list_tasks() -> list[dict]:
     """Return summary of all tracked background tasks."""
-    import time
     rows = []
     for tid, info in _task_registry.items():
         elapsed = int(time.time() - info["started_at"])
@@ -308,15 +306,10 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         permission_mode="acceptEdits",
         cwd=str(workspace.HOME),
         max_turns=cfg.get("max_turns"),
-        include_partial_messages=True,
     )
 
 
-async def run(
-    chat_id: str,
-    user_message: str,
-    on_partial: Callable[[str], Awaitable[None]] | None = None,
-) -> str:
+async def run(chat_id: str, user_message: str) -> str:
     """Run one turn of conversation. Multi-turn via cached client per chat_id."""
     # Load dynamic tools on every call (no restart needed when new tools added)
     dynamic_tools = load_custom_tools()
@@ -358,20 +351,11 @@ async def run(
     try:
         await client.query(timestamped_message)
         parts: list[str] = []
-        partial_text = ""
         async for msg in client.receive_response():
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         parts.append(block.text)
-            elif isinstance(msg, StreamEvent):
-                ev = msg.event
-                if ev.get("type") == "content_block_delta":
-                    delta = ev.get("delta", {})
-                    if delta.get("type") == "text_delta":
-                        partial_text += delta.get("text", "")
-                        if on_partial and partial_text:
-                            await on_partial(partial_text)
             elif isinstance(msg, ResultMessage):
                 _sessions[chat_id].last_result = msg
                 usage = msg.usage or {}

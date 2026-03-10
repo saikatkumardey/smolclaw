@@ -13,8 +13,11 @@ from loguru import logger
 
 _known_tool_files: set[str] = set()
 
-# mtime-based cache: path -> (mtime, SdkMcpTool)
+# Per-file cache: path -> (mtime, SdkMcpTool)
 _tool_cache: dict[str, tuple[float, SdkMcpTool]] = {}
+
+# Directory-level cache: (dir_mtime, result_list) — skips glob+stat when dir unchanged
+_dir_cache: tuple[float, list[SdkMcpTool]] | None = None
 
 
 def _make_sdk_tool(name: str, desc: str, properties: dict, required: list, execute_fn) -> SdkMcpTool:
@@ -48,9 +51,20 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
         from . import workspace
         tools_dir = workspace.TOOLS_DIR
 
+    global _dir_cache
+
     tool_list: list[SdkMcpTool] = []
     if not tools_dir.exists():
         return tool_list
+
+    try:
+        dir_mtime = tools_dir.stat().st_mtime
+    except OSError:
+        return tool_list
+
+    # Fast path: directory unchanged — return cached list
+    if _dir_cache is not None and _dir_cache[0] == dir_mtime:
+        return list(_dir_cache[1])
 
     for path in sorted(tools_dir.glob("*.py")):
         str_path = str(path)
@@ -93,6 +107,7 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
         except Exception as e:
             logger.error("Failed to load tool %s: %s", path.name, e)
 
+    _dir_cache = (dir_mtime, tool_list)
     return tool_list
 
 

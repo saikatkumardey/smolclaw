@@ -6,6 +6,9 @@ from typing import Any
 
 from . import workspace
 
+# Cache: (file_mtime, Config instance)
+_cache: tuple[float, "Config"] | None = None
+
 
 class Config:
     DEFAULTS: dict[str, Any] = {
@@ -24,6 +27,7 @@ class Config:
         return self._data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
+        global _cache
         if key not in self.DEFAULTS:
             raise KeyError(f"Unknown config key: {key!r}")
         expected = type(self.DEFAULTS[key])
@@ -31,6 +35,7 @@ class Config:
             raise TypeError(f"{key!r} must be {expected.__name__}, got {type(value).__name__}")
         self._data[key] = value
         self._save()
+        _cache = None  # Invalidate cache on write
 
     def to_dict(self) -> dict:
         return dict(self._data)
@@ -39,7 +44,16 @@ class Config:
         workspace.write_json(workspace.CONFIG, self._data)
 
     @classmethod
-    def load(cls) -> Config:
+    def load(cls) -> "Config":
+        global _cache
+        try:
+            mtime = workspace.CONFIG.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+
+        if _cache is not None and _cache[0] == mtime:
+            return _cache[1]
+
         data = workspace.read_json(workspace.CONFIG)
 
         # Migration: pick up env vars if smolclaw.json is missing those keys
@@ -60,4 +74,6 @@ class Config:
         merged = dict(cls.DEFAULTS)
         merged.update(data)
 
-        return cls(merged)
+        instance = cls(merged)
+        _cache = (mtime, instance)
+        return instance

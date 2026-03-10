@@ -9,11 +9,15 @@ import shutil
 import sys
 from pathlib import Path
 
+import yaml
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from . import workspace
+from .tool_loader import load_custom_tools
 from .tools import MAX_TG_MSG
+from .tools_sdk import CUSTOM_TOOLS
+from .session_state import SessionState
 from .agent import (
     AVAILABLE_MODELS,
     get_current_model,
@@ -86,9 +90,6 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    from .tool_loader import load_custom_tools
-    from .tools_sdk import CUSTOM_TOOLS
-    from .session_state import SessionState
     dynamic_tools = load_custom_tools()
     builtin_count = 5  # Bash, Read, Write, WebSearch, WebFetch
     custom_sdk_count = len(CUSTOM_TOOLS) + 1  # +1 for spawn_task
@@ -167,7 +168,6 @@ async def on_tasks(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_crons(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    import yaml
     crons_path = workspace.CRONS
     if not crons_path.exists():
         await update.message.reply_text("No crons.yaml found.")
