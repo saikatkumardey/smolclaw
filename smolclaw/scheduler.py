@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,18 +23,33 @@ HEARTBEAT_OK = "HEARTBEAT_OK"
 def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False) -> None:
     from .agent import run
     logger.info("Cron: {}", job_id)
-    try:
-        # NOTE: spawn_task background tasks are not supported in cron context.
-        # asyncio.run() creates a fresh event loop that is destroyed when run() returns,
-        # cancelling any fire-and-forget tasks created during execution.
-        result = asyncio.run(run(chat_id=f"cron:{job_id}", user_message=prompt))
-        if heartbeat and HEARTBEAT_OK in result:
-            logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
-            return
-        if deliver_to and result != "(no response)":
-            _telegram.send(chat_id=deliver_to, message=result)
-    except Exception as e:
-        logger.error("Cron {} failed: {}", job_id, e)
+
+    result_holder: list[str] = []
+    exc_holder: list[Exception] = []
+
+    def _thread_target() -> None:
+        try:
+            # NOTE: spawn_task background tasks are not supported in cron context.
+            # asyncio.run() creates a fresh event loop that is destroyed when run() returns,
+            # cancelling any fire-and-forget tasks created during execution.
+            result_holder.append(asyncio.run(run(chat_id=f"cron:{job_id}", user_message=prompt)))
+        except Exception as e:
+            exc_holder.append(e)
+
+    t = threading.Thread(target=_thread_target, daemon=True)
+    t.start()
+    t.join()  # scheduler thread is freed immediately; job runs in its own thread
+
+    if exc_holder:
+        logger.error("Cron {} failed: {}", job_id, exc_holder[0])
+        return
+
+    result = result_holder[0] if result_holder else "(no response)"
+    if heartbeat and HEARTBEAT_OK in result:
+        logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
+        return
+    if deliver_to and result != "(no response)":
+        _telegram.send(chat_id=deliver_to, message=result)
 
 
 def setup_scheduler() -> BackgroundScheduler:
