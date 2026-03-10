@@ -164,6 +164,27 @@ async def on_tasks(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("\n".join(lines))
 
 
+
+@require_allowed
+async def on_crons(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    import yaml
+    crons_path = workspace.CRONS
+    if not crons_path.exists():
+        await update.message.reply_text("No crons.yaml found.")
+        return
+    data = yaml.safe_load(crons_path.read_text()) or {}
+    jobs = data.get("jobs", [])
+    if not jobs:
+        await update.message.reply_text("No scheduled jobs.")
+        return
+    lines = []
+    for job in jobs:
+        jid = job.get("id", "?")
+        cron = job.get("cron", "?")
+        prompt = job.get("prompt", "")[:60]
+        lines.append(f"{jid} ({cron}): {prompt}")
+    await update.message.reply_text("Scheduled jobs:\n" + "\n".join(lines))
+
 @require_allowed
 async def on_model(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     current = get_current_model()
