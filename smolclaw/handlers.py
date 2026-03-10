@@ -268,44 +268,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("Incoming [%s]: %s", chat_id, text[:80])
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     try:
-        preview_msg_id: list[int | None] = [None]
-        last_edit: list[float] = [0.0]
-        last_text: list[str] = [""]
-
-        async def on_partial(partial: str) -> None:
-            snippet = _to_telegram_md(partial[:MAX_TG_MSG])
-            if snippet == last_text[0]:
-                return
-            now = asyncio.get_running_loop().time()
-            if now - last_edit[0] < 0.5:
-                return
-            last_edit[0] = now
-            last_text[0] = snippet
-            try:
-                if preview_msg_id[0] is None:
-                    msg = await context.bot.send_message(
-                        chat_id=chat_id, text=snippet + " ▍",
-                        parse_mode="Markdown",
-                    )
-                    preview_msg_id[0] = msg.message_id
-                else:
-                    await context.bot.edit_message_text(
-                        chat_id=chat_id, message_id=preview_msg_id[0],
-                        text=snippet + " ▍", parse_mode="Markdown",
-                    )
-            except Exception:
-                pass
-
-        reply = await agent_run(chat_id=chat_id, user_message=text, on_partial=on_partial)
+        reply = await agent_run(chat_id=chat_id, user_message=text)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
-
-        # Delete the streaming preview before sending the final reply
-        if preview_msg_id[0] is not None:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=preview_msg_id[0])
-            except Exception:
-                pass
-
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
