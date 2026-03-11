@@ -422,6 +422,60 @@ def _install_systemd_service(workspace_home: Path) -> None:
         ))
 
 
+# ── Watchdog Installation ─────────────────────────────────────────────────────
+
+_WATCHDOG_DEST = Path("/usr/local/bin/smolclaw-watchdog")
+_WATCHDOG_CRON = "*/10 * * * * /usr/local/bin/smolclaw-watchdog >> ~/.smolclaw/watchdog.log 2>&1"
+
+
+def _install_watchdog(workspace_home: Path) -> None:  # noqa: ARG001
+    """Copy watchdog.sh to /usr/local/bin and add a system cron entry."""
+    # Locate the bundled watchdog script (next to this file)
+    watchdog_src = Path(__file__).parent / "watchdog.sh"
+    if not watchdog_src.exists():
+        _warn("watchdog.sh not found in package — skipping watchdog installation.")
+        return
+
+    # ── Copy to /usr/local/bin ────────────────────────────────────────────
+    try:
+        shutil.copy2(watchdog_src, _WATCHDOG_DEST)
+        _WATCHDOG_DEST.chmod(0o755)
+    except (PermissionError, OSError) as exc:
+        _warn(f"Could not install watchdog script ({exc}). Try: sudo cp {watchdog_src} {_WATCHDOG_DEST} && sudo chmod +x {_WATCHDOG_DEST}")
+        return
+
+    # ── Install cron entry (idempotent) ───────────────────────────────────
+    try:
+        existing = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True,
+            text=True,
+        )
+        # Tolerate "no crontab for user" (exit code 1, specific stderr)
+        current_crontab = existing.stdout if existing.returncode == 0 else ""
+
+        # Strip any existing smolclaw-watchdog lines, then append fresh entry
+        filtered = "\n".join(
+            line for line in current_crontab.splitlines()
+            if "smolclaw-watchdog" not in line
+        )
+        new_crontab = (filtered.rstrip("\n") + "\n" + _WATCHDOG_CRON + "\n").lstrip("\n")
+
+        proc = subprocess.run(
+            ["crontab", "-"],
+            input=new_crontab,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, "crontab -", proc.stderr)
+
+        _success("Watchdog installed (system cron, every 10 min)")
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        _warn(f"Could not install cron entry ({exc}).")
+        _warn(f"Add manually: {_WATCHDOG_CRON}")
+
+
 # ── Main Entry Point ──────────────────────────────────────────────────────────
 
 def run() -> None:
@@ -491,3 +545,6 @@ def run() -> None:
 
     # ── Systemd service installation ──────────────────────────────────────
     _install_systemd_service(workspace.HOME)
+
+    # ── Watchdog installation ──────────────────────────────────────────────
+    _install_watchdog(workspace.HOME)

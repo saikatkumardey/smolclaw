@@ -165,31 +165,30 @@ Override the workspace path with `SMOLCLAW_HOME=/path/to/dir`.
          │  writes ~/.smolclaw/.pid
          │  stdout/stderr → ~/.smolclaw/smolclaw.log
          ▼
-  ┌──────────────────────────────────────────────────────┐
-  │                  main.py  (daemon)                   │
-  │                                                      │
-  │  Telegram ──► handlers.py ──► agent.run(chat_id)     │
-  │                                     │                │
-  │                               agent.py               │
-  │                     ClaudeSDKClient (one per chat)    │
-  │                               │                      │
-  │          ┌────────────────────┼─────────────────┐    │
-  │          │                    │                  │    │
-  │   Built-in tools        MCP tools          Custom tools │
-  │   Bash  Read  Write     telegram_send      tools/*.py   │
-  │   WebSearch  WebFetch   spawn_task         (hot-reload) │
-  │   Glob  Grep            save_handover                │  │
-  │                         self_restart                 │  │
-  │                         self_update                  │  │
-  │                               │                      │  │
-  │                          spawn_task                  │  │
-  │                               │                      │  │
-  │                          sub-agent                   │  │
-  │                      (isolated, background)          │  │
-  │                      result → Telegram               │  │
-  │                                                      │  │
-  │  scheduler.py ──► crons.yaml ──► agent.run ──► Telegram │
-  └──────────────────────────────────────────────────────┘
+  ┌─────────────────────────────────────────────────────────────┐
+  │                      main.py  (daemon)                      │
+  │                                                             │
+  │  Telegram ──► handlers.py ──► agent.run(chat_id)            │
+  │                                      │                      │
+  │  scheduler.py                  agent.py                     │
+  │  (crons.yaml) ──► agent.run    ClaudeSDKClient              │
+  │                         │      (one per chat)               │
+  │                         └──────────┤                        │
+  │                                    │                        │
+  │            ┌───────────────────────┼──────────────────┐     │
+  │            │                       │                  │     │
+  │     Built-in tools           MCP tools          Custom tools│
+  │     Bash  Read  Write        telegram_send      tools/*.py  │
+  │     WebSearch  WebFetch      spawn_task         (hot-reload)│
+  │     Glob  Grep               save_handover                  │
+  │                              self_restart                   │
+  │                              self_update                    │
+  │                                    │                        │
+  │                               spawn_task                    │
+  │                                    │                        │
+  │                              sub-agent (isolated)           │
+  │                              result → Telegram              │
+  └─────────────────────────────────────────────────────────────┘
 
   ~/.smolclaw/
   ├── .env              ← secrets (bot token, API key)
@@ -212,11 +211,12 @@ Override the workspace path with `SMOLCLAW_HOME=/path/to/dir`.
 **How it hangs together:**
 
 - **systemd** manages the process lifecycle. `smolclaw setup` writes the service file with `Restart=always` so the agent recovers from crashes automatically.
-- **scheduler.py** reads `crons.yaml` on startup and registers all jobs in-process. Each job runs as a short agent session and can send Telegram messages.
+- **scheduler.py** reads `crons.yaml` on startup and registers all jobs in-process. Each job fires a prompt at `agent.run` — the same main agent that handles Telegram messages. The agent handles simple cron work inline and uses `spawn_task` for anything heavier.
 - **agent.py** holds one `ClaudeSDKClient` per chat. Sessions persist across messages for multi-turn context.
 - **Custom tools** are `.py` files with a `SCHEMA` dict and `execute()` function. Drop one in `tools/` and it's available on the next message — no restart needed.
 - **Skills** are markdown files in `skills/*/SKILL.md`. They're injected into the system prompt at session start, so the agent knows how to use installed CLIs, APIs, or workflows you've taught it.
 - **spawn_task** runs a fully isolated sub-agent in the background. It returns immediately; results arrive via Telegram when the task completes. Use it for anything that would take more than a few tool calls.
+- **Watchdog** is a shell script installed at `/usr/local/bin/smolclaw-watchdog`, run by system cron every 10 minutes independently of the smolclaw process. If smolclaw crashes or fails to start, you get a Telegram alert within 10 minutes.
 
 ---
 
