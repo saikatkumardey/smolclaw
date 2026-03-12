@@ -35,8 +35,17 @@ It remembers you across sessions, runs cron jobs, writes custom tools on the fly
 ### 1. Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/saikatkumardey/smolclaw/main/install.sh | bash
+```
+
+Installs uv if needed, installs smolclaw, then runs setup. That's it.
+
+Or manually:
+
+```bash
 pip install uv
 uv tool install git+https://github.com/saikatkumardey/smolclaw
+smolclaw setup
 ```
 
 ### 2. Create a Telegram bot
