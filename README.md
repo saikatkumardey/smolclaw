@@ -59,12 +59,11 @@ Asks for your bot token, Telegram user ID, and Claude auth. On Linux systems wit
 
 ### 5. Start the bot
 
-```bash
-# If systemd service was installed (Linux):
-systemctl start smolclaw
-systemctl status smolclaw
+On Linux with systemd, setup starts the service automatically. It's already running.
 
-# Or manually:
+For debugging or non-systemd systems:
+
+```bash
 smolclaw start              # background daemon
 smolclaw start --foreground # foreground (useful for debugging)
 smolclaw logs               # view output
