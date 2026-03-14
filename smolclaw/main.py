@@ -284,6 +284,7 @@ def start(
                 BotCommand("restart", "Restart the bot process"),
                 BotCommand("update",  "Update smolclaw and restart"),
                 BotCommand("context", "Show context window usage"),
+                BotCommand("effort",  "Set thinking effort level"),
             ])
             scheduler.start()
             from .auth import default_chat_id
