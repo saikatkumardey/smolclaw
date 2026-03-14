@@ -257,6 +257,7 @@ def start(
         bot.add_handler(CommandHandler("reload", h.on_reload))
         bot.add_handler(CommandHandler("restart", h.on_restart))
         bot.add_handler(CommandHandler("update", h.on_update))
+        bot.add_handler(CommandHandler("context", h.on_context))
         bot.add_handler(CallbackQueryHandler(h.on_model_callback, pattern="^model:"))
         bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.on_message))
         bot.add_handler(MessageHandler(filters.PHOTO, h.on_photo))
@@ -278,6 +279,7 @@ def start(
                 BotCommand("tasks",   "List background tasks"),
                 BotCommand("reload",  "Reload skills and memory"),
                 BotCommand("restart", "Restart the bot process"),
+                BotCommand("context", "Show context window usage"),
             ])
             scheduler.start()
             from .auth import default_chat_id
