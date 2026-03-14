@@ -345,12 +345,12 @@ def restart() -> None:
     import subprocess
     # If managed by systemd, delegate to systemctl to avoid duplicate instances
     result = subprocess.run(
-        ["systemctl", "is-active", "smolclaw.service"],
+        ["systemctl", "--user", "is-active", "smolclaw.service"],
         capture_output=True, text=True,
     )
     if result.stdout.strip() in ("active", "activating"):
-        typer.echo("Detected systemd service — delegating to systemctl restart smolclaw.service...")
-        subprocess.run(["sudo", "systemctl", "restart", "smolclaw.service"], check=True)
+        typer.echo("Detected systemd user service — delegating to systemctl --user restart...")
+        subprocess.run(["systemctl", "--user", "restart", "smolclaw.service"], check=True)
         typer.echo("Restarted via systemd.")
         return
 

@@ -365,7 +365,6 @@ After=network.target
 
 [Service]
 Type=simple
-User={current_user}
 WorkingDirectory={workspace_home}
 EnvironmentFile={workspace_home}/.env
 ExecStart={smolclaw_binary} start --foreground
@@ -375,44 +374,54 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 """
 
-_SERVICE_PATH = Path("/etc/systemd/system/smolclaw.service")
 _SYSTEMD_RUNTIME = Path("/run/systemd/system")
 
 
 def _install_systemd_service(workspace_home: Path) -> None:
-    """Generate and install the systemd service file if systemd is available."""
+    """Install smolclaw as a systemd user service (no root required)."""
     if not _SYSTEMD_RUNTIME.exists():
         return  # Not a systemd system — skip silently
 
-    current_user = getpass.getuser()
     smolclaw_binary = shutil.which("smolclaw") or sys.executable
 
     service_content = _SERVICE_TEMPLATE.format(
-        current_user=current_user,
         workspace_home=workspace_home,
         smolclaw_binary=smolclaw_binary,
     )
 
+    service_dir = Path.home() / ".config" / "systemd" / "user"
+    service_path = service_dir / "smolclaw.service"
+
     try:
-        _SERVICE_PATH.write_text(service_content)
+        service_dir.mkdir(parents=True, exist_ok=True)
+        service_path.write_text(service_content)
         subprocess.run(
-            ["systemctl", "daemon-reload"],
+            ["systemctl", "--user", "daemon-reload"],
             check=True,
             capture_output=True,
         )
         subprocess.run(
-            ["systemctl", "enable", "smolclaw"],
+            ["systemctl", "--user", "enable", "smolclaw"],
             check=True,
             capture_output=True,
         )
-        _success("Systemd service installed. Run 'systemctl start smolclaw' to start.")
+        _success("Systemd user service installed. Run 'systemctl --user start smolclaw' to start.")
+        # Enable linger so the service survives logout (best-effort)
+        try:
+            subprocess.run(
+                ["loginctl", "enable-linger", getpass.getuser()],
+                check=True,
+                capture_output=True,
+            )
+        except (PermissionError, subprocess.CalledProcessError):
+            _warn("Could not enable linger (needs root). Service won't auto-start on boot unless you run: sudo loginctl enable-linger " + getpass.getuser())
     except (PermissionError, OSError, subprocess.CalledProcessError) as exc:
-        _warn(f"Could not install systemd service automatically ({exc}).")
-        _warn("To install manually, save the following to /etc/systemd/system/smolclaw.service")
-        _warn("then run: systemctl daemon-reload && systemctl enable smolclaw")
+        _warn(f"Could not install systemd user service automatically ({exc}).")
+        _warn(f"To install manually, save the following to {service_path}")
+        _warn("then run: systemctl --user daemon-reload && systemctl --user enable smolclaw")
         console.print()
         console.print(Panel(
             service_content,
