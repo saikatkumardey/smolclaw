@@ -41,6 +41,14 @@ AVAILABLE_MODELS: list[tuple[str, str]] = [
     ("claude-haiku-4-5-20251001", "Haiku 4.5 — Fastest"),
 ]
 
+# Available effort levels: (effort_id, display_label)
+AVAILABLE_EFFORTS: list[tuple[str, str]] = [
+    ("low",    "Low — fast, minimal thinking (default)"),
+    ("medium", "Medium — balanced thinking"),
+    ("high",   "High — deeper reasoning"),
+    ("max",    "Max — maximum thinking budget"),
+]
+
 
 def get_current_model() -> str:
     return Config.load().get("model")
@@ -52,6 +60,18 @@ async def set_model(model_id: str) -> None:
     cfg.set("model", model_id)
     # Keep env var in sync for scheduler and other env-var readers
     os.environ["SMOLCLAW_MODEL"] = model_id
+    for chat_id in list(_sessions.keys()):
+        await reset_session(chat_id)
+
+
+def get_current_effort() -> str:
+    return Config.load().get("effort")
+
+
+async def set_effort(effort: str) -> None:
+    """Persist the chosen effort level to smolclaw.json and reset all sessions."""
+    cfg = Config.load()
+    cfg.set("effort", effort)
     for chat_id in list(_sessions.keys()):
         await reset_session(chat_id)
 
@@ -308,6 +328,7 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         permission_mode="acceptEdits",
         cwd=str(workspace.HOME),
         max_turns=cfg.get("max_turns"),
+        effort=cfg.get("effort"),
     )
 
 
