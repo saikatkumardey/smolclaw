@@ -350,7 +350,7 @@ def restart() -> None:
     )
     if result.stdout.strip() in ("active", "activating"):
         typer.echo("Detected systemd service — delegating to systemctl restart smolclaw.service...")
-        subprocess.run(["systemctl", "restart", "smolclaw.service"], check=True)
+        subprocess.run(["sudo", "systemctl", "restart", "smolclaw.service"], check=True)
         typer.echo("Restarted via systemd.")
         return
 
