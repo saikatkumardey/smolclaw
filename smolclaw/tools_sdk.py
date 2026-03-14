@@ -101,4 +101,13 @@ async def update_config(args: dict) -> dict:
     return {"content": [{"type": "text", "text": f"Set {key} = {args['value']}"}]}
 
 
-CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update, update_config]
+@tool("read_skill", "Read the instructions for a skill by name.", {"name": str})
+async def read_skill_tool(args: dict) -> dict:
+    from .skills import read_skill
+    content = read_skill(args["name"], workspace.SKILLS_DIR)
+    if content is None:
+        return {"content": [{"type": "text", "text": f"Skill {args['name']!r} not found."}]}
+    return {"content": [{"type": "text", "text": content}]}
+
+
+CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update, update_config, read_skill_tool]

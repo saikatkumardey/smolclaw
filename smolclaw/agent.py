@@ -21,7 +21,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .skills import load_skills
+from .skills import list_skills
 from .tool_loader import load_custom_tools
 from .tools_sdk import CUSTOM_TOOLS
 from . import workspace
@@ -205,8 +205,12 @@ def _system_prompt() -> str:
         if content:
             parts.append(f"=== {name} ===\n{content.strip()}")
 
-    if skills := load_skills(workspace.SKILLS_DIR):
-        parts.append(f"=== AVAILABLE SKILLS ===\n{skills}")
+    if skills := list_skills(workspace.SKILLS_DIR):
+        parts.append(
+            f"=== AVAILABLE SKILLS ===\n"
+            f"Use the read_skill tool to load a skill's instructions on demand.\n"
+            f"Skills: {', '.join(skills)}"
+        )
 
     if memory := workspace.read(workspace.MEMORY):
         parts.append(f"=== MEMORY.md ===\n{memory.strip()}")
