@@ -165,7 +165,7 @@ Override the workspace path with `SMOLCLAW_HOME=/path/to/dir`.
 
 ## Architecture
 
-[Interactive diagram →](https://excalidraw.com/#json=CpAX_BpCpOgPcOEiyYV08,HDic375QwOwIaKEcfKaHTA)
+![Architecture](./architecture.svg)
 
 ```
   systemd (Restart=always)

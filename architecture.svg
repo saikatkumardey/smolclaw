@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 920" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">
+
+  <!-- Background -->
+  <rect width="1320" height="920" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="660" y="38" text-anchor="middle" font-size="22" font-weight="bold" fill="#1e1e1e">SmolClaw Architecture</text>
+
+  <!-- Zone: Telegram -->
+  <rect x="20" y="60" width="220" height="830" rx="12" fill="#dbe4ff" stroke="#4a9eed" stroke-width="1.5" opacity="0.7"/>
+  <text x="130" y="82" text-anchor="middle" font-size="13" font-weight="bold" fill="#2563eb">Telegram Layer</text>
+
+  <!-- Zone: Agent -->
+  <rect x="260" y="60" width="480" height="830" rx="12" fill="#e5dbff" stroke="#8b5cf6" stroke-width="1.5" opacity="0.7"/>
+  <text x="500" y="82" text-anchor="middle" font-size="13" font-weight="bold" fill="#6d28d9">Agent Layer</text>
+
+  <!-- Zone: Tools -->
+  <rect x="760" y="60" width="360" height="830" rx="12" fill="#d3f9d8" stroke="#22c55e" stroke-width="1.5" opacity="0.7"/>
+  <text x="940" y="82" text-anchor="middle" font-size="13" font-weight="bold" fill="#15803d">Tool &amp; Data Layer</text>
+
+  <!-- Zone: Workspace -->
+  <rect x="1140" y="60" width="160" height="830" rx="12" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5" opacity="0.7"/>
+  <text x="1220" y="82" text-anchor="middle" font-size="13" font-weight="bold" fill="#b45309">Workspace</text>
+
+  <!-- ── Telegram Layer boxes ── -->
+  <!-- Telegram User -->
+  <rect x="40" y="100" width="160" height="52" rx="8" fill="#a5d8ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="120" y="122" text-anchor="middle" font-weight="bold" fill="#1e3a5f">Telegram</text>
+  <text x="120" y="140" text-anchor="middle" fill="#1e3a5f">User</text>
+
+  <!-- main.py -->
+  <rect x="40" y="220" width="160" height="52" rx="8" fill="#a5d8ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="120" y="241" text-anchor="middle" font-weight="bold" fill="#1e3a5f">main.py</text>
+  <text x="120" y="259" text-anchor="middle" fill="#1e3a5f">CLI + Bot setup</text>
+
+  <!-- handlers.py -->
+  <rect x="40" y="340" width="160" height="52" rx="8" fill="#a5d8ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="120" y="361" text-anchor="middle" font-weight="bold" fill="#1e3a5f">handlers.py</text>
+  <text x="120" y="379" text-anchor="middle" fill="#1e3a5f">Cmd + Msg handlers</text>
+
+  <!-- scheduler.py -->
+  <rect x="40" y="460" width="160" height="52" rx="8" fill="#a5d8ff" stroke="#2563eb" stroke-width="2"/>
+  <text x="120" y="481" text-anchor="middle" font-weight="bold" fill="#1e3a5f">scheduler.py</text>
+  <text x="120" y="499" text-anchor="middle" fill="#1e3a5f">APScheduler crons</text>
+
+  <!-- ── Arrows: Telegram layer ── -->
+  <!-- user → main (start) -->
+  <line x1="120" y1="152" x2="120" y2="220" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="128" y="190" font-size="11" fill="#2563eb">start</text>
+  <!-- main → handlers -->
+  <line x1="120" y1="272" x2="120" y2="340" stroke="#1e1e1e" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
+  <!-- user → handlers (message, dashed) -->
+  <line x1="100" y1="152" x2="100" y2="340" stroke="#4a9eed" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-blue)"/>
+  <text x="54" y="265" font-size="11" fill="#4a9eed">message</text>
+
+  <!-- ── Agent Layer boxes ── -->
+  <!-- agent.py -->
+  <rect x="280" y="180" width="210" height="70" rx="8" fill="#d0bfff" stroke="#6d28d9" stroke-width="2"/>
+  <text x="385" y="203" text-anchor="middle" font-weight="bold" fill="#3b0764">agent.py</text>
+  <text x="385" y="221" text-anchor="middle" fill="#3b0764">_Session + run()</text>
+  <text x="385" y="239" text-anchor="middle" fill="#3b0764">per-chat lock</text>
+
+  <!-- _system_prompt() -->
+  <rect x="280" y="310" width="210" height="60" rx="8" fill="#d0bfff" stroke="#6d28d9" stroke-width="2"/>
+  <text x="385" y="331" text-anchor="middle" font-weight="bold" fill="#3b0764">_system_prompt()</text>
+  <text x="385" y="349" text-anchor="middle" fill="#3b0764">SOUL+USER+Skills+MEM</text>
+  <text x="385" y="362" text-anchor="middle" font-size="11" fill="#6d28d9">(rebuilt on client creation)</text>
+
+  <!-- claude-agent-sdk -->
+  <rect x="290" y="430" width="190" height="52" rx="8" fill="#eebefa" stroke="#9333ea" stroke-width="2"/>
+  <text x="385" y="452" text-anchor="middle" font-weight="bold" fill="#4a044e">claude-agent-sdk</text>
+  <text x="385" y="470" text-anchor="middle" fill="#4a044e">ClaudeSDKClient</text>
+
+  <!-- sessions cache -->
+  <rect x="280" y="545" width="210" height="52" rx="8" fill="#d0bfff" stroke="#6d28d9" stroke-width="2"/>
+  <text x="385" y="566" text-anchor="middle" font-weight="bold" fill="#3b0764">_sessions[chat_id]</text>
+  <text x="385" y="584" text-anchor="middle" fill="#3b0764">per-chat client cache</text>
+
+  <!-- config.py -->
+  <rect x="500" y="310" width="160" height="52" rx="8" fill="#d0bfff" stroke="#6d28d9" stroke-width="2"/>
+  <text x="580" y="331" text-anchor="middle" font-weight="bold" fill="#3b0764">config.py</text>
+  <text x="580" y="351" text-anchor="middle" fill="#3b0764">model / effort / turns</text>
+
+  <!-- spawn_task (sub-agent) -->
+  <rect x="290" y="660" width="190" height="52" rx="8" fill="#eebefa" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="385" y="681" text-anchor="middle" font-weight="bold" fill="#4a044e">spawn_task</text>
+  <text x="385" y="699" text-anchor="middle" fill="#4a044e">isolated sub-agent</text>
+
+  <!-- session_log -->
+  <rect x="290" y="770" width="190" height="52" rx="8" fill="#d0bfff" stroke="#6d28d9" stroke-width="2"/>
+  <text x="385" y="791" text-anchor="middle" font-weight="bold" fill="#3b0764">session_log()</text>
+  <text x="385" y="809" text-anchor="middle" fill="#3b0764">JSONL per-day log</text>
+
+  <!-- ── Arrows: handlers → agent ── -->
+  <line x1="200" y1="366" x2="280" y2="230" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow-purple)"/>
+  <text x="218" y="307" font-size="11" fill="#8b5cf6">agent.run()</text>
+  <!-- scheduler → agent -->
+  <line x1="200" y1="486" x2="280" y2="240" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-purple)"/>
+
+  <!-- agent → sysprompt -->
+  <line x1="385" y1="250" x2="385" y2="310" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrow-purple-dark)"/>
+  <!-- agent → sdk -->
+  <line x1="385" y1="370" x2="385" y2="430" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrow-purple-dark)"/>
+  <!-- agent → sessions -->
+  <line x1="385" y1="482" x2="385" y2="545" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#arrow-purple-dark)"/>
+  <!-- agent → config (dashed) -->
+  <line x1="490" y1="215" x2="558" y2="310" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-purple-dark)"/>
+  <!-- agent → spawn_task -->
+  <line x1="385" y1="597" x2="385" y2="660" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-purple)"/>
+  <!-- agent → session_log -->
+  <line x1="370" y1="597" x2="350" y2="770" stroke="#6d28d9" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arrow-purple-dark)"/>
+
+  <!-- ── Tool Layer boxes ── -->
+  <!-- tools_sdk.py -->
+  <rect x="780" y="100" width="200" height="60" rx="8" fill="#b2f2bb" stroke="#15803d" stroke-width="2"/>
+  <text x="880" y="122" text-anchor="middle" font-weight="bold" fill="#14532d">tools_sdk.py</text>
+  <text x="880" y="140" text-anchor="middle" fill="#14532d">telegram / handover / restart</text>
+
+  <!-- tool_loader.py -->
+  <rect x="780" y="220" width="200" height="60" rx="8" fill="#b2f2bb" stroke="#15803d" stroke-width="2"/>
+  <text x="880" y="242" text-anchor="middle" font-weight="bold" fill="#14532d">tool_loader.py</text>
+  <text x="880" y="260" text-anchor="middle" fill="#14532d">hot-reload tools/*.py</text>
+
+  <!-- skills.py -->
+  <rect x="780" y="340" width="200" height="60" rx="8" fill="#b2f2bb" stroke="#15803d" stroke-width="2"/>
+  <text x="880" y="362" text-anchor="middle" font-weight="bold" fill="#14532d">skills.py</text>
+  <text x="880" y="380" text-anchor="middle" fill="#14532d">hot-load skills/*/SKILL.md</text>
+
+  <!-- tools.py -->
+  <rect x="780" y="460" width="200" height="52" rx="8" fill="#b2f2bb" stroke="#15803d" stroke-width="2"/>
+  <text x="880" y="481" text-anchor="middle" font-weight="bold" fill="#14532d">tools.py</text>
+  <text x="880" y="499" text-anchor="middle" fill="#14532d">Telegram HTTP util</text>
+
+  <!-- auth.py -->
+  <rect x="780" y="570" width="200" height="52" rx="8" fill="#b2f2bb" stroke="#15803d" stroke-width="2"/>
+  <text x="880" y="591" text-anchor="middle" font-weight="bold" fill="#14532d">auth.py</text>
+  <text x="880" y="609" text-anchor="middle" fill="#14532d">ALLOWED_USER_IDS</text>
+
+  <!-- session_state.py -->
+  <rect x="780" y="680" width="200" height="52" rx="8" fill="#c3fae8" stroke="#0d9488" stroke-width="2"/>
+  <text x="880" y="701" text-anchor="middle" font-weight="bold" fill="#134e4a">session_state.py</text>
+  <text x="880" y="719" text-anchor="middle" fill="#134e4a">daily token tracking</text>
+
+  <!-- handover.py -->
+  <rect x="780" y="790" width="200" height="52" rx="8" fill="#c3fae8" stroke="#0d9488" stroke-width="2"/>
+  <text x="880" y="811" text-anchor="middle" font-weight="bold" fill="#134e4a">handover.py</text>
+  <text x="880" y="829" text-anchor="middle" fill="#134e4a">state across restarts</text>
+
+  <!-- ── Arrows: agent → tools ── -->
+  <!-- sdk → tools_sdk MCP -->
+  <line x1="480" y1="456" x2="780" y2="130" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="590" y="310" font-size="11" fill="#15803d">MCP: smolclaw</text>
+  <!-- tool_loader → agent (hot-reload) -->
+  <line x1="480" y1="246" x2="780" y2="250" stroke="#15803d" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-green-dark)"/>
+  <text x="540" y="242" font-size="11" fill="#15803d">MCP: dynamic</text>
+  <!-- skills → sysprompt -->
+  <line x1="490" y1="340" x2="780" y2="370" stroke="#15803d" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-green-dark)"/>
+  <text x="590" y="358" font-size="11" fill="#15803d">inject into prompt</text>
+
+  <!-- ── Workspace boxes ── -->
+  <rect x="1158" y="100" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="123" text-anchor="middle" fill="#7c2d12">SOUL.md</text>
+
+  <rect x="1158" y="148" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="171" text-anchor="middle" fill="#7c2d12">USER.md</text>
+
+  <rect x="1158" y="196" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="219" text-anchor="middle" fill="#7c2d12">MEMORY.md</text>
+
+  <rect x="1158" y="244" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="267" text-anchor="middle" fill="#7c2d12">crons.yaml</text>
+
+  <rect x="1158" y="292" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="315" text-anchor="middle" fill="#7c2d12">skills/*/SKILL.md</text>
+
+  <rect x="1158" y="340" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="363" text-anchor="middle" fill="#7c2d12">tools/*.py</text>
+
+  <rect x="1158" y="388" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="411" text-anchor="middle" fill="#7c2d12">sessions/*.jsonl</text>
+
+  <rect x="1158" y="436" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="459" text-anchor="middle" fill="#7c2d12">handover.md</text>
+
+  <rect x="1158" y="484" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="507" text-anchor="middle" fill="#7c2d12">smolclaw.json</text>
+
+  <rect x="1158" y="532" width="124" height="36" rx="6" fill="#fff3bf" stroke="#b45309" stroke-width="1.5"/>
+  <text x="1220" y="555" text-anchor="middle" fill="#7c2d12">.env</text>
+
+  <!-- Workspace arrows (dashed) -->
+  <line x1="980" y1="118" x2="1158" y2="118" stroke="#b45309" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-amber)"/>
+  <line x1="980" y1="250" x2="1158" y2="214" stroke="#b45309" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-amber)"/>
+  <line x1="980" y1="370" x2="1158" y2="310" stroke="#b45309" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-amber)"/>
+  <line x1="980" y1="480" x2="1158" y2="356" stroke="#b45309" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-amber)"/>
+  <line x1="980" y1="700" x2="1158" y2="454" stroke="#b45309" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-amber)"/>
+  <line x1="980" y1="816" x2="1158" y2="502" stroke="#b45309" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-amber)"/>
+
+  <!-- Arrowhead markers -->
+  <defs>
+    <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-dark" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#1e1e1e"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8b5cf6"/>
+    </marker>
+    <marker id="arrow-purple-dark" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#6d28d9"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#22c55e"/>
+    </marker>
+    <marker id="arrow-green-dark" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#15803d"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#b45309"/>
+    </marker>
+  </defs>
+
+</svg>
