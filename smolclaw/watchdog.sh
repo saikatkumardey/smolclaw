@@ -29,9 +29,9 @@ _load_env() {
 
 # ── Is smolclaw running? ──────────────────────────────────────────────────────
 _is_running() {
-    # 1. Try systemd
+    # 1. Try systemd user service
     if command -v systemctl &>/dev/null; then
-        if systemctl is-active --quiet smolclaw 2>/dev/null; then
+        if XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user is-active --quiet smolclaw 2>/dev/null; then
             return 0
         fi
     fi
