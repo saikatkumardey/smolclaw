@@ -82,7 +82,8 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/reset — clear conversation history\n"
         "/cancel — cancel the current running task\n"
         "/reload — reload skills and memory\n"
-        "/restart — restart the bot process\n\n"
+        "/restart — restart the bot process\n"
+        "/context — show context window usage\n\n"
         "Or just talk to me."
     )
     await update.message.reply_text(text)
@@ -185,6 +186,41 @@ async def on_crons(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(f"{jid} ({cron}): {prompt}")
     await update.message.reply_text("Scheduled jobs:\n" + "\n".join(lines))
 
+CONTEXT_WINDOW_TOKENS = 200_000
+CONTEXT_WARN_THRESHOLD = 0.80
+
+
+def _context_fill(chat_id: str) -> tuple[int, float]:
+    """Return (used_tokens, fill_fraction) from last result for a chat."""
+    result = get_last_result(chat_id)
+    if not result:
+        return 0, 0.0
+    usage = result.usage or {}
+    used = usage.get("cache_read_input_tokens", 0) + usage.get("input_tokens", 0)
+    return used, used / CONTEXT_WINDOW_TOKENS
+
+
+@require_allowed
+async def on_context(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = str(update.effective_chat.id)
+    used, fill = _context_fill(chat_id)
+    pct = fill * 100
+    bar_filled = int(fill * 20)
+    bar = "#" * bar_filled + "-" * (20 - bar_filled)
+    status = "OK"
+    if fill >= 0.95:
+        status = "CRITICAL — reset soon"
+    elif fill >= CONTEXT_WARN_THRESHOLD:
+        status = "WARNING — approaching limit"
+    text = (
+        f"Context window: {pct:.1f}%\n"
+        f"[{bar}]\n"
+        f"{used:,} / {CONTEXT_WINDOW_TOKENS:,} tokens\n"
+        f"Status: {status}"
+    )
+    await update.message.reply_text(text)
+
+
 @require_allowed
 async def on_model(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     current = get_current_model()
@@ -271,6 +307,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         reply = await agent_run(chat_id=chat_id, user_message=text)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
         await _reply_chunked(update.message, reply)
+        used, fill = _context_fill(chat_id)
+        if fill >= CONTEXT_WARN_THRESHOLD:
+            pct = fill * 100
+            warn = f"Context at {pct:.0f}% ({used:,} / {CONTEXT_WINDOW_TOKENS:,} tokens). Consider /reset soon."
+            await update.message.reply_text(warn)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
         await update.message.reply_text(_classify_error(e))
