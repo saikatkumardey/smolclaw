@@ -219,6 +219,13 @@ def start(
         level="INFO",
         format="<green>{time:HH:mm:ss}</green> | <level>{level:<7}</level> | <cyan>{name}</cyan> - <level>{message}</level>",
     )
+    logger.add(
+        workspace.LOG_FILE,
+        level="INFO",
+        format="{time:HH:mm:ss} | {level:<7} | {name} - {message}",
+        rotation="10 MB",
+        retention=3,
+    )
 
     # ---------------------------------------------------------------------------
     # Pre-flight checks
