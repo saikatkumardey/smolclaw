@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import signal
 import sys
 
 import typer
@@ -200,13 +199,11 @@ def start(
         typer.echo(f"SmolClaw started (PID {proc.pid}). Run 'smolclaw logs' to view output.")
         return
 
-    # Auto-reap child processes (claude subprocesses spawned by the Agent SDK)
-    # so they don't accumulate as zombies after cron jobs complete.
-    # SIG_IGN (not SIG_DFL) is required: explicitly ignoring SIGCHLD tells the
-    # kernel to discard child exit status immediately. SIG_DFL is the default
-    # and does nothing — children still become zombies until wait() is called.
-    # Safe on Python 3.12: asyncio uses PidfdChildWatcher (pidfd, not SIGCHLD).
-    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+    # Do NOT set SIGCHLD to SIG_IGN here. While it auto-reaps zombies, it also
+    # discards exit status before asyncio's PidfdChildWatcher can call waitpid(),
+    # causing every SDK subprocess to report returncode 255 (ProcessError).
+    # The SDK already calls wait() on its child processes, so zombies are not
+    # an issue for normal agent sessions.
 
     load_dotenv(workspace.HOME / ".env", override=True)
     from .config import Config
@@ -337,6 +334,17 @@ def start(
 @app.command()
 def stop() -> None:
     """Stop the running SmolClaw daemon."""
+    import subprocess
+    # If managed by systemd, delegate to systemctl to avoid Restart=always loop
+    result = subprocess.run(
+        ["systemctl", "--user", "is-active", "smolclaw.service"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip() in ("active", "activating"):
+        subprocess.run(["systemctl", "--user", "stop", "smolclaw.service"], check=True)
+        typer.echo("Stopped via systemd.")
+        return
+
     from .daemon import read_pid, stop_daemon
     pid = read_pid()  # for display; stop_daemon re-checks liveness
     if stop_daemon():
