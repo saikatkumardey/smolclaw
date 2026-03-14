@@ -2,8 +2,6 @@
 
 Personal AI agent on Telegram. Self-hosted, powered by Claude.
 
-![Architecture](./architecture.svg)
-
 ## Install
 
 ```bash
