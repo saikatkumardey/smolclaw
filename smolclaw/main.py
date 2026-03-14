@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
 import sys
 
 import typer
@@ -198,6 +199,10 @@ def start(
         write_pid(proc.pid)
         typer.echo(f"SmolClaw started (PID {proc.pid}). Run 'smolclaw logs' to view output.")
         return
+
+    # Auto-reap child processes (claude subprocesses spawned by the Agent SDK)
+    # so they don't accumulate as zombies after cron jobs complete.
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
     load_dotenv(workspace.HOME / ".env", override=True)
     from .config import Config
