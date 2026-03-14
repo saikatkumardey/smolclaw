@@ -20,7 +20,9 @@ from .tools_sdk import CUSTOM_TOOLS
 from .session_state import SessionState
 from .agent import (
     AVAILABLE_MODELS,
+    AVAILABLE_EFFORTS,
     get_current_model,
+    get_current_effort,
     get_last_result,
     interrupt_session,
     list_tasks,
@@ -28,6 +30,7 @@ from .agent import (
     run as agent_run,
     session_log,
     set_model,
+    set_effort,
 )
 from .auth import require_allowed
 
@@ -79,6 +82,8 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/status — current config and stats\n"
         "/model — show current Claude model\n"
         "/models — switch Claude model\n"
+        "/effort — show current thinking effort\n"
+        "/efforts — switch thinking effort (low/medium/high/max)\n"
         "/reset — clear conversation history\n"
         "/cancel — cancel the current running task\n"
         "/reload — reload skills and memory\n"
@@ -265,6 +270,54 @@ async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> Non
     label = next(lbl for mid, lbl in AVAILABLE_MODELS if mid == model_id)
     await query.edit_message_text(
         f"✓ Switched to *{label}*\n`{model_id}`\n\nAll sessions reset — next message uses the new model.",
+        parse_mode="Markdown",
+    )
+
+
+@require_allowed
+async def on_effort(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    current = get_current_effort()
+    label = next((lbl for eid, lbl in AVAILABLE_EFFORTS if eid == current), current)
+    await update.message.reply_text(
+        f"Current effort: *{label}*\n`{current}`",
+        parse_mode="Markdown",
+    )
+
+
+@require_allowed
+async def on_efforts(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    current = get_current_effort()
+    keyboard = [
+        [InlineKeyboardButton(
+            f"{'✓ ' if eid == current else ''}{lbl}",
+            callback_data=f"effort:{eid}",
+        )]
+        for eid, lbl in AVAILABLE_EFFORTS
+    ]
+    await update.message.reply_text(
+        "Select thinking effort level:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    from .auth import is_allowed
+    query = update.callback_query
+    await query.answer()
+    if not (query.data or "").startswith("effort:"):
+        return
+    if not is_allowed(update.effective_chat.id):
+        await query.edit_message_text("Not authorised.")
+        return
+    effort_id = query.data[len("effort:"):]
+    valid = {eid for eid, _ in AVAILABLE_EFFORTS}
+    if effort_id not in valid:
+        await query.edit_message_text("Unknown effort level.")
+        return
+    await set_effort(effort_id)
+    label = next(lbl for eid, lbl in AVAILABLE_EFFORTS if eid == effort_id)
+    await query.edit_message_text(
+        f"✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
         parse_mode="Markdown",
     )
 
