@@ -13,6 +13,7 @@ _cache: tuple[str, float, "Config"] | None = None
 class Config:
     DEFAULTS: dict[str, Any] = {
         "model": "claude-sonnet-4-6",
+        "effort": "low",
         "max_turns": 10,
         "subagent_max_turns": 15,
         "subagent_timeout": 120,
