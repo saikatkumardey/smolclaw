@@ -82,8 +82,7 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/status — current config and stats\n"
         "/model — show current Claude model\n"
         "/models — switch Claude model\n"
-        "/effort — show current thinking effort\n"
-        "/efforts — switch thinking effort (low/medium/high/max)\n"
+        "/effort — switch thinking effort (low/medium/high/max)\n"
         "/reset — clear conversation history\n"
         "/cancel — cancel the current running task\n"
         "/reload — reload skills and memory\n"
@@ -278,16 +277,6 @@ async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> Non
 @require_allowed
 async def on_effort(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     current = get_current_effort()
-    label = next((lbl for eid, lbl in AVAILABLE_EFFORTS if eid == current), current)
-    await update.message.reply_text(
-        f"Current effort: *{label}*\n`{current}`",
-        parse_mode="Markdown",
-    )
-
-
-@require_allowed
-async def on_efforts(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    current = get_current_effort()
     keyboard = [
         [InlineKeyboardButton(
             f"{'✓ ' if eid == current else ''}{lbl}",
@@ -299,6 +288,11 @@ async def on_efforts(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "Select thinking effort level:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+@require_allowed
+async def on_efforts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await on_effort(update, ctx)
 
 
 async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
