@@ -81,7 +81,7 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
                 continue
 
         if path.name not in _known_tool_files:
-            logger.warning("New tool file detected: %s — loaded without integrity check", path.name)
+            logger.warning("New tool file detected: {} — loaded without integrity check", path.name)
             _known_tool_files.add(path.name)
         try:
             spec = importlib.util.spec_from_file_location(path.stem, path)
@@ -89,7 +89,7 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
             spec.loader.exec_module(mod)
 
             if not (hasattr(mod, "SCHEMA") and hasattr(mod, "execute")):
-                logger.warning("Skipping %s — missing SCHEMA or execute()", path.name)
+                logger.warning("Skipping {} — missing SCHEMA or execute()", path.name)
                 continue
 
             fn_def = mod.SCHEMA["function"]
@@ -102,10 +102,10 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
             sdk_tool = _make_sdk_tool(tool_name, tool_desc, properties, required_params, mod.execute)
             _tool_cache[str_path] = (mtime, sdk_tool)
             tool_list.append(sdk_tool)
-            logger.info("Loaded custom tool: %s", tool_name)
+            logger.info("Loaded custom tool: {}", tool_name)
 
         except Exception as e:
-            logger.error("Failed to load tool %s: %s", path.name, e)
+            logger.error("Failed to load tool {}: {}", path.name, e)
 
     _dir_cache = (dir_mtime, tool_list)
     return tool_list

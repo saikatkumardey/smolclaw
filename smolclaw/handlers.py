@@ -88,6 +88,7 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/cancel — cancel the current running task\n"
         "/reload — reload skills and memory\n"
         "/restart — restart the bot process\n"
+        "/update — update smolclaw and restart\n"
         "/context — show context window usage\n\n"
         "Or just talk to me."
     )
@@ -342,12 +343,42 @@ async def on_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Saving handover and updating...")
-    chat_id = str(update.effective_chat.id)
-    await agent_run(
-        chat_id=chat_id,
-        user_message="Save a handover note summarising current context, then call self_update.",
-    )
+    import subprocess
+    from .handover import save as save_handover
+
+    await update.message.reply_text("Saving handover and updating…")
+
+    try:
+        save_handover("Process updating via /update command. Resuming after restart.")
+    except Exception as e:
+        logger.warning("Handover save failed: %s", e)
+
+    source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["uv", "tool", "install", "--upgrade", source],
+            capture_output=True, text=True, timeout=120,
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Update failed: {e}")
+        return
+
+    if result.returncode != 0:
+        await update.message.reply_text(f"Update failed:\n{result.stderr[:500]}")
+        return
+
+    await update.message.reply_text("Updated. Restarting…")
+
+    try:
+        from .scheduler import scheduler as _sched
+        _sched.shutdown(wait=False)
+    except Exception:
+        pass
+
+    exe = shutil.which("smolclaw") or sys.argv[0]
+    argv = [exe, "start"] if len(sys.argv) < 2 else [exe] + sys.argv[1:]
+    os.execv(exe, argv)
 
 
 @require_allowed

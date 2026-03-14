@@ -282,6 +282,7 @@ def start(
                 BotCommand("tasks",   "List background tasks"),
                 BotCommand("reload",  "Reload skills and memory"),
                 BotCommand("restart", "Restart the bot process"),
+                BotCommand("update",  "Update smolclaw and restart"),
                 BotCommand("context", "Show context window usage"),
             ])
             scheduler.start()
