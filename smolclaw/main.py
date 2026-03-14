@@ -342,6 +342,18 @@ def stop() -> None:
 @app.command()
 def restart() -> None:
     """Restart the SmolClaw daemon."""
+    import subprocess
+    # If managed by systemd, delegate to systemctl to avoid duplicate instances
+    result = subprocess.run(
+        ["systemctl", "is-active", "smolclaw.service"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip() in ("active", "activating"):
+        typer.echo("Detected systemd service — delegating to systemctl restart smolclaw.service...")
+        subprocess.run(["systemctl", "restart", "smolclaw.service"], check=True)
+        typer.echo("Restarted via systemd.")
+        return
+
     from .daemon import is_running, stop_daemon
     running, pid = is_running()
     if running:
