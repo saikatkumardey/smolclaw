@@ -202,7 +202,11 @@ def start(
 
     # Auto-reap child processes (claude subprocesses spawned by the Agent SDK)
     # so they don't accumulate as zombies after cron jobs complete.
-    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+    # SIG_IGN (not SIG_DFL) is required: explicitly ignoring SIGCHLD tells the
+    # kernel to discard child exit status immediately. SIG_DFL is the default
+    # and does nothing — children still become zombies until wait() is called.
+    # Safe on Python 3.12: asyncio uses PidfdChildWatcher (pidfd, not SIGCHLD).
+    signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
     load_dotenv(workspace.HOME / ".env", override=True)
     from .config import Config
