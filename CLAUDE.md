@@ -54,6 +54,7 @@ Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in 
 
 ## Conventions
 
+- **TDD: write tests first, then implement.** Write a failing test that captures the expected behavior, then write the code to make it pass. This catches environment mismatches and edge cases before they ship.
 - Bump version in `pyproject.toml` after every set of changes (before suggesting `/update`).
 - Never add co-author lines or "Generated with Claude Code" to commits.
 - Run full test suite before pushing — `uv run pytest`.
