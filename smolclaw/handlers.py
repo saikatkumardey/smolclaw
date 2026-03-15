@@ -55,6 +55,38 @@ def _classify_error(e: Exception) -> str:
     return "Something went wrong. Check the logs."
 
 
+def _local_version() -> str:
+    """Get installed smolclaw version, with CLI fallback."""
+    import importlib.metadata
+    import re
+    import subprocess
+    try:
+        return importlib.metadata.version("smolclaw")
+    except Exception:
+        pass
+    # Fallback: parse from uv tool list
+    try:
+        result = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=10)
+        for line in result.stdout.splitlines():
+            if "smolclaw" in line.lower():
+                m = re.search(r"v?(\d+\.\d+\.\d+)", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    # Fallback: read pyproject.toml directly
+    try:
+        import pathlib
+        toml = pathlib.Path(__file__).parent.parent / "pyproject.toml"
+        if toml.exists():
+            m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text())
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "unknown"
+
+
 def _get_update_summary(source: str, old_version: str) -> str:
     """Get version and changelog after a successful update."""
     import re
@@ -454,16 +486,11 @@ async def on_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    import importlib.metadata
     import subprocess as _subprocess
 
     from .handover import save as save_handover
 
-    # Capture current version
-    try:
-        old_version = importlib.metadata.version("smolclaw")
-    except Exception:
-        old_version = "unknown"
+    old_version = _local_version()
 
     await update.message.reply_text("Checking for updates…")
 

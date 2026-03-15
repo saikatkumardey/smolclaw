@@ -18,6 +18,34 @@ from .auth import is_allowed, default_chat_id
 _ALLOWED_SOURCE_PREFIX = "git+https://github.com/saikatkumardey/smolclaw"
 
 
+def _local_version() -> str:
+    """Get installed smolclaw version, with fallbacks."""
+    import importlib.metadata
+    import re
+    try:
+        return importlib.metadata.version("smolclaw")
+    except Exception:
+        pass
+    try:
+        result = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=10)
+        for line in result.stdout.splitlines():
+            if "smolclaw" in line.lower():
+                m = re.search(r"v?(\d+\.\d+\.\d+)", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    try:
+        toml = Path(__file__).parent.parent / "pyproject.toml"
+        if toml.exists():
+            m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text())
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "unknown"
+
+
 @tool("telegram_send", "Send a Telegram message to a chat_id. For cron delivery.", {"chat_id": str, "message": str})
 async def telegram_send(args: dict) -> dict:
     if not is_allowed(args["chat_id"]):
@@ -112,17 +140,11 @@ def _get_update_summary(source: str, old_version: str) -> str:
 
 @tool("self_update", "Check for updates and install if a newer version is available. Always call save_handover first.", {})
 async def self_update(args: dict) -> dict:
-    import importlib.metadata
-
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
     if not source.startswith(_ALLOWED_SOURCE_PREFIX):
         return _text(f"Error: SMOLCLAW_SOURCE {source!r} is not an allowed update URL.")
 
-    # Capture current version before update
-    try:
-        old_version = importlib.metadata.version("smolclaw")
-    except Exception:
-        old_version = "unknown"
+    old_version = _local_version()
 
     # Check remote version before installing
     import re

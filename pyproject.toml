@@ -1,6 +1,6 @@
 [project]
 name = "smolclaw"
-version = "0.4.6"
+version = "0.4.7"
 description = "Self-hosted Telegram AI agent. 10 tools, skills, heartbeat, CLI learning."
 readme = "README.md"
 requires-python = ">=3.12"
