@@ -5,6 +5,10 @@ import os
 import shutil
 import sys
 
+# Clear CLAUDECODE early — if set, claude-agent-sdk subprocess refuses to start
+# with "cannot be launched inside another Claude Code session".
+os.environ.pop("CLAUDECODE", None)
+
 import typer
 from dotenv import load_dotenv
 
