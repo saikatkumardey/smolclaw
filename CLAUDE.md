@@ -1,110 +1,59 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Commands
 
 ```bash
-# Install (development)
-uv sync
-
-# Install as a tool (production-style)
-uv tool install .
-
-# Run
-smolclaw setup         # interactive first-time wizard (Telegram token + user ID + Claude auth)
-smolclaw setup-token   # re-run Claude authentication only (API key or claude auth login)
-smolclaw start         # start the Telegram bot
-smolclaw update        # pull latest from GitHub and reinstall
-
-# Tests
-uv run pytest
-uv run pytest tests/test_agent.py::test_run_returns_string   # single test
-
+uv sync                    # install dev deps
+uv run pytest              # run tests (always run full suite before pushing)
+uv run pytest tests/test_agent.py::test_run_returns_string  # single test
 ```
 
 ## Architecture
 
-SmolClaw is a self-hosted Telegram bot that wraps a `claude-agent-sdk` `ClaudeSDKClient`. The agent persists state in `~/.smolclaw/` (overridable via `SMOLCLAW_HOME`).
+Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in this repo).
 
-**Request flow:**
-1. Telegram message → `main.py` handler → `await agent.run(chat_id, message)`
-2. `agent.py` maintains one `_Session` (holding `ClaudeSDKClient` + dynamic tool names) per `chat_id` in `_sessions` dict
-3. Each client is constructed with a system prompt (SOUL + USER + MEMORY + skills) and an MCP server containing custom tools
-4. `claude-agent-sdk` runs the tool-calling loop (max 10 turns) and returns a string reply
-5. Reply is converted from CommonMark to Telegram Markdown v1 (`_to_telegram_md`) and sent with `parse_mode="Markdown"`
+**Request flow:** Telegram message → `handlers.py` → `agent.run(chat_id, msg)` → `ClaudeSDKClient` tool loop (max 10 turns) → reply via Telegram.
 
-**Workspace files** (`~/.smolclaw/`):
+**Session lifecycle:** One `_Session` per `chat_id` in `agent._sessions`. Created on first message, reused across turns. Reset by `/reset`, model/effort change, dynamic tool change, or auto-rotation at 70% context fill. `reset_session()` also cleans up browser contexts.
 
-| File | Purpose |
-|------|---------|
-| `SOUL.md` | Agent identity and operating instructions |
-| `USER.md` | User profile (name, timezone, preferences) |
-| `MEMORY.md` | Persistent agent memory across sessions |
-| `HEARTBEAT.md` | Instructions for the 30-minute heartbeat cron |
-| `crons.yaml` | Scheduled jobs (APScheduler cron syntax) |
-| `skills/<name>/SKILL.md` | Lazily-loaded skill docs injected into system prompt |
-| `tools/<name>.py` | User-defined custom tools, hot-loaded on every request |
-| `sessions/<date>.jsonl` | JSONL session logs (one file per day) |
-| `handover.md` | State persisted across restarts/updates (read once, then deleted) |
+**Auto-rotation** (`agent.py`): When context exceeds 70%, builds a handover from recent session logs and resets. Next message gets a fresh client with handover in system prompt. Invisible to user.
 
-**Built-in tools** (Claude Code native, 5): `Bash`, `Read`, `Write`, `WebSearch`, `WebFetch`.
+**System prompt** (`agent._system_prompt()`): Built on client creation (not per-message) for prompt caching. Order: workspace context → SOUL.md → USER.md → skills list → MEMORY.md → handover. Current timestamp prepended to user message instead.
 
-**Custom SDK tools** (`smolclaw/tools_sdk.py`, 6): `telegram_send`, `save_handover`, `self_restart`, `self_update`, `spawn_task` — served via an in-process MCP server named `smolclaw`. Telegram HTTP logic lives in `smolclaw/tools.py:_send_telegram` and is shared with `TelegramSender` (used by the scheduler).
+## Key files
 
-**Custom tools** (`smolclaw/tool_loader.py`): Any `.py` file in `~/.smolclaw/tools/` that exports `SCHEMA` (OpenAI function schema dict) and `execute` (callable) is dynamically loaded as an SDK `@tool`. Tools are reloaded on every request — no restart needed. A change in the dynamic tool set triggers a one-time client reconnect for that chat session.
+| File | What it does |
+|------|-------------|
+| `agent.py` | Session management, system prompt, `run()`, auto-rotation, `spawn_task` |
+| `handlers.py` | Telegram command/message handlers, typing loop, reactions, `/update` |
+| `tools_sdk.py` | Built-in SDK tools (telegram, browser, search_sessions, etc.) |
+| `tool_loader.py` | Hot-loads `~/.smolclaw/tools/*.py` as SDK tools on every request |
+| `browser.py` | Playwright browser manager (lazy singleton, per-chat contexts) |
+| `main.py` | CLI entrypoint, bot wiring, startup/shutdown hooks |
+| `handover.py` | Save/load/clear handover notes across restarts |
 
-**Skills** (`smolclaw/skills.py`): Skill docs (`~/.smolclaw/skills/*/SKILL.md`) are read and concatenated into the system prompt on every request.
+## Tools
 
-**Scheduler** (`smolclaw/scheduler.py`): Reads `~/.smolclaw/crons.yaml` at startup and schedules jobs via APScheduler. Each job calls `asyncio.run(agent.run(...))` (stateless per execution) and delivers the result via `TelegramSender`. Heartbeat jobs suppress output if `HEARTBEAT_OK` appears anywhere in the agent reply.
+**Built-in** (5): `Bash`, `Read`, `Write`, `WebSearch`, `WebFetch`
 
-**Sub-agents** (`spawn_task`): Uses the SDK's `query()` function to run an isolated sub-agent with a restricted tool set (no Telegram, no restart) and a configurable timeout (`asyncio.timeout`).
+**SDK tools** (`tools_sdk.py`): `telegram_send`, `telegram_send_file`, `save_handover`, `self_restart`, `self_update`, `update_config`, `read_skill`, `search_sessions`, `browse`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_eval`
 
-**System prompt construction** (`agent._system_prompt()`): Built fresh on client creation from workspace files + skills + optional handover note + onboarding block (when `USER.md` still has `"Not set yet"`). The prompt is kept stable (for prompt caching) by prepending the current timestamp to the user message instead.
+**Dynamic tools** (`~/.smolclaw/tools/*.py`): Must export `SCHEMA` (OpenAI function schema dict) and `execute()`. All params arrive as strings — always coerce defensively.
 
-**Model selection**: `get_current_model()` reads `SMOLCLAW_MODEL` env var (default `claude-sonnet-4-6`). `set_model()` persists the choice to `.env` and resets all sessions. Exposed via `/model` and `/models` Telegram commands.
+## Things that bite you
 
-## Bot commands
+- **`/update` handler is separate from `self_update` tool.** Both do `uv tool install --upgrade` + `os.execv`. Changes to update logic must be applied to both `handlers.py:on_update` and `tools_sdk.py:self_update`.
+- **Tool wrapper casts ALL params to strings.** Every tool (built-in and dynamic) must defensively coerce: `int()`, `json.loads()` with try/except. Never trust types.
+- **System prompt is built once per client, not per message.** Don't add per-message dynamic content to `_system_prompt()` — it breaks prompt caching. Put ephemeral info in the user message instead.
+- **Dynamic tool change resets the session.** Adding/modifying a `.py` in `tools/` silently drops conversation history for that chat. Browser contexts are cleaned up too.
+- **Handover is one-shot.** Written to `handover.md`, injected into system prompt on next client creation, then deleted. Max 4000 chars.
+- **Edited messages are reprocessed.** `on_message` handles both `update.message` and `update.edited_message`. Use `update.edited_message or update.message` to get the right one.
+- **Test mocks need `edited_message = None`.** MagicMock is truthy — tests that create mock Updates must explicitly set `update.edited_message = None` or the handler picks up the mock as an edit.
 
-| Command | Handler | Notes |
-|---------|---------|-------|
-| `/start` | `on_start` | |
-| `/help` | `on_help` | |
-| `/status` | `on_status` | shows model, workspace, tool/skill counts |
-| `/model` | `on_model` | shows current model |
-| `/models` | `on_models` | inline keyboard to switch model |
-| `/reset` | `on_reset` | disconnects and removes cached session |
-| `/reload` | `on_reload` | (no-op — tools/skills are hot-reloaded automatically) |
-| `/restart` | `on_restart` | `os.execv` in-place restart |
-| `/update` | `on_update` | agent calls `self_update` tool |
+## Conventions
 
-All handlers guard with `_allowed(update)` — non-allowlisted users get no response.
-
-## Environment variables
-
-| Var | Default | Purpose |
-|-----|---------|---------|
-| `TELEGRAM_BOT_TOKEN` | — | Required. Set by `smolclaw setup`. |
-| `ALLOWED_USER_IDS` | — | Required. Comma-separated Telegram chat IDs. Set by `smolclaw setup`. Bot refuses to start if unset. |
-| `SMOLCLAW_MODEL` | `claude-sonnet-4-6` | Active Claude model. Persisted to `.env` by `/models` command. |
-| `SMOLCLAW_HOME` | `~/.smolclaw` | Workspace directory. |
-| `SMOLCLAW_SOURCE` | GitHub URL | Source repo for `self_update`. |
-| `SMOLCLAW_SUBAGENT_TIMEOUT` | `120` | Sub-agent timeout in seconds. |
-
-## Claude Code workflow preferences
-
-- Use **Opus 4.6** for planning, architecture, and code review tasks.
-- Use **Sonnet 4.6** for implementation work (writing code, applying fixes, refactoring).
-- After parallel agents modify source files, **always run the full test suite** before declaring done to catch cross-agent dependencies.
-
-## Key design constraints
-
-- `ALLOWED_USER_IDS` is **required** — `smolclaw start` exits if unset. Every handler silently ignores non-allowlisted users.
-- The system prompt is rebuilt on **client creation** (not per-message) to enable prompt caching. Avoid patterns that would force client re-creation on every message.
-- Sessions are stored in `_sessions: dict[str, _Session]`. Each `_Session` holds a `ClaudeSDKClient` and the `frozenset` of dynamic tool names active when it was created. Use `reset_session(chat_id)` to disconnect and remove — do not manipulate `_sessions` directly from `main.py`.
-- Custom tools and skills are **hot-reloaded** on every request without restart. A new tool in `~/.smolclaw/tools/` triggers a one-time client reconnect.
-- Cron jobs use `asyncio.run()` (fresh event loop per execution) — stateless, do not share sessions with the main bot.
-- `Bash` runs commands with `cwd=~/.smolclaw/` by default (set via `ClaudeAgentOptions.cwd`).
-- Heartbeat jobs check `HEARTBEAT_OK in result` (substring, not exact match) to suppress forwarding the reply to Telegram.
-- Reply text is passed through `_to_telegram_md()` before sending: converts `**bold**` → `*bold*` and `## headings` → `*heading*`. Falls back to plain text if Telegram rejects the parse.
-- Photo/document messages: file saved to `~/.smolclaw/uploads/`, path passed to agent. Agent uses native Claude vision via `Read` tool.
+- Bump version in `pyproject.toml` after every set of changes (before suggesting `/update`).
+- Never add co-author lines or "Generated with Claude Code" to commits.
+- Run full test suite before pushing — `uv run pytest`.
+- Keep `CUSTOM_TOOLS` list at the bottom of `tools_sdk.py` in sync when adding tools.
+- Browser tools use lazy imports (`from .browser import BrowserManager`) to avoid importing Playwright at module load.
