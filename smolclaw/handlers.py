@@ -152,9 +152,24 @@ class _TypingLoop:
 async def _react(message, emoji: str = "\U0001f440") -> None:
     """React to a message with an emoji. Silently ignores failures."""
     try:
-        await message.set_reaction(emoji)
+        from telegram import ReactionTypeEmoji
+        await message.set_reaction(ReactionTypeEmoji(emoji))
     except Exception:
         pass
+
+
+async def _react_done(message, reply: str) -> None:
+    """React with a contextual emoji based on the reply content."""
+    reply_lower = reply.lower()
+    if any(w in reply_lower for w in ("error", "failed", "traceback", "exception", "broke")):
+        emoji = "\U0001f480"  # 💀
+    elif any(w in reply_lower for w in ("deploy", "push", "ship", "launch", "live")):
+        emoji = "\U0001f525"  # 🔥
+    elif any(w in reply_lower for w in ("done", "fixed", "complete", "success", "saved", "logged")):
+        emoji = "\u2705"  # ✅
+    else:
+        emoji = "\U0001fae1"  # 🫡
+    await _react(message, emoji)
 
 
 async def _reply_chunked(message, text: str) -> None:
@@ -490,23 +505,26 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.edited_message or update.message
     chat_id = str(update.effective_chat.id)
-    text = update.message.text or ""
-    logger.info("Incoming [%s]: %s", chat_id, text[:80])
-    await _react(update.message)
+    text = msg.text or ""
+    is_edit = update.edited_message is not None
+    logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
+    await _react(msg)
     try:
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=text)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
-        await _reply_chunked(update.message, reply)
+        await _react_done(msg, reply)
+        await _reply_chunked(msg, reply)
         used, fill = _context_fill(chat_id)
         if fill >= CONTEXT_WARN_THRESHOLD:
             pct = fill * 100
             warn = f"Context at {pct:.0f}% ({used:,} / {CONTEXT_WINDOW_TOKENS:,} tokens). Consider /reset soon."
-            await update.message.reply_text(warn)
+            await msg.reply_text(warn)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
-        await update.message.reply_text(_classify_error(e))
+        await msg.reply_text(_classify_error(e))
 
 
 @require_allowed
@@ -526,6 +544,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         agent_msg = f"[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
+        await _react_done(update.message, reply)
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling document: %s", e)
@@ -546,6 +565,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         agent_msg = f"[User sent a photo. Saved to: {dest}]\n\n{caption}"
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
+        await _react_done(update.message, reply)
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling photo: %s", e)

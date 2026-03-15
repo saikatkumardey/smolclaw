@@ -92,8 +92,10 @@ class TestReplyChunked:
 def _make_update(chat_id="123", text="hi"):
     update = MagicMock()
     update.effective_chat.id = int(chat_id)
+    update.edited_message = None
     update.message.text = text
     update.message.reply_text = AsyncMock()
+    update.message.set_reaction = AsyncMock()
     return update
 
 

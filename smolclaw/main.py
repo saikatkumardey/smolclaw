@@ -267,6 +267,7 @@ def start(
         bot.add_handler(CallbackQueryHandler(h.on_model_callback, pattern="^model:"))
         bot.add_handler(CallbackQueryHandler(h.on_effort_callback, pattern="^effort:"))
         bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.on_message))
+        bot.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE & filters.TEXT & ~filters.COMMAND, h.on_message))
         bot.add_handler(MessageHandler(filters.PHOTO, h.on_photo))
         bot.add_handler(MessageHandler(filters.Document.ALL, h.on_document))
 
@@ -294,10 +295,23 @@ def start(
             from .auth import default_chat_id
             default_chat = default_chat_id()
             if default_chat:
-                from .handover import exists as handover_exists
-                msg = "Back online. Handover note loaded — resuming on your next message." if handover_exists() else "Online."
+                from importlib.metadata import version as pkg_version
+                from .handover import exists as handover_exists, load as handover_load
                 try:
-                    await app.bot.send_message(chat_id=default_chat, text=msg)
+                    ver = pkg_version("smolclaw")
+                except Exception:
+                    ver = "?"
+                parts = [f"Back online. v{ver}"]
+                if handover_exists():
+                    handover = handover_load()
+                    # Extract version line from handover if present
+                    for line in handover.splitlines():
+                        if "->" in line and any(c.isdigit() for c in line):
+                            parts.append(line.strip())
+                            break
+                    parts.append("Handover loaded — picking up where I left off.")
+                try:
+                    await app.bot.send_message(chat_id=default_chat, text="\n".join(parts))
                 except Exception:
                     pass
 
