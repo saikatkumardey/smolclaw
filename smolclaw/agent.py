@@ -97,6 +97,12 @@ async def reset_session(chat_id: str) -> None:
     """Disconnect and remove the cached session for chat_id."""
     if session := _sessions.pop(chat_id, None):
         await session.client.disconnect()
+    # Clean up browser context if one exists
+    try:
+        from .browser import BrowserManager
+        await BrowserManager.get().close_session(chat_id)
+    except Exception:
+        pass
 
 
 async def interrupt_session(chat_id: str) -> bool:

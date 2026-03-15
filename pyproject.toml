@@ -16,6 +16,7 @@ dependencies = [
     "loguru>=0.7.0",
     "questionary>=2.0.0",
     "typer>=0.24.1",
+    "playwright>=1.40.0",
 ]
 
 [project.scripts]

@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -317,6 +318,29 @@ def _check_runtime() -> list[CheckResult]:
                         f"Tool {path.name} failed to load: {e}",
                         "Fix the error or remove the file",
                     ))
+
+    # Playwright browser
+    pw_check = shutil.which("playwright")
+    if pw_check:
+        pw_result = subprocess.run(
+            ["playwright", "install", "--dry-run", "chromium"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # dry-run exits 0 if already installed
+        if pw_result.returncode == 0:
+            results.append(CheckResult(Status.OK, "Playwright Chromium installed"))
+        else:
+            results.append(CheckResult(
+                Status.WARN,
+                "Playwright Chromium not installed — browser tools won't work",
+                "Run: playwright install chromium --with-deps",
+            ))
+    else:
+        results.append(CheckResult(
+            Status.WARN,
+            "Playwright CLI not found — browser tools won't work",
+            "Run: playwright install chromium --with-deps",
+        ))
 
     # Cron expressions
     crons_path = workspace.CRONS

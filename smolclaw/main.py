@@ -311,6 +311,11 @@ def start(
                 save("Process shutting down. No pending tasks.")
             except Exception:
                 pass
+            try:
+                from .browser import BrowserManager
+                await BrowserManager.get().close_all()
+            except Exception:
+                pass
             scheduler.shutdown(wait=False)
             from .daemon import delete_pid
             delete_pid()
