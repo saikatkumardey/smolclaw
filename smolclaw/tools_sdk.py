@@ -11,7 +11,7 @@ from pathlib import Path
 
 from claude_agent_sdk import tool
 
-from .tools import _send_telegram, _send_telegram_file
+from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _text_to_voice
 from . import workspace
 from .auth import is_allowed, default_chat_id
 
@@ -346,8 +346,42 @@ async def browser_eval(args: dict) -> dict:
         return _text(f"JS eval failed: {e}")
 
 
+@tool(
+    "telegram_send_voice",
+    "Convert text to a voice message (OGG/Opus) and send it to a Telegram chat. "
+    "Great for daily summaries, briefings, or any content that's nicer to listen to. "
+    "Uses edge-tts for synthesis. Optional voice parameter (default: en-US-AriaNeural).",
+    {"chat_id": str, "text": str, "voice": str, "caption": str},
+)
+async def telegram_send_voice(args: dict) -> dict:
+    import tempfile
+
+    chat_id = str(args["chat_id"])
+    if not is_allowed(chat_id):
+        return _text(f"Error: chat_id {chat_id!r} is not in ALLOWED_USER_IDS.")
+
+    text = str(args["text"])
+    voice = str(args.get("voice", "en-US-AriaNeural") or "en-US-AriaNeural")
+    caption = str(args.get("caption", "") or "")
+
+    # Generate voice file
+    with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False, dir=str(workspace.HOME)) as tmp:
+        ogg_path = tmp.name
+
+    try:
+        result = await asyncio.to_thread(_text_to_voice, text, ogg_path, voice)
+        if result != ogg_path:
+            return _text(f"TTS error: {result}")
+
+        send_result = await asyncio.to_thread(_send_telegram_voice, chat_id, ogg_path, caption)
+        return _text(send_result)
+    finally:
+        Path(ogg_path).unlink(missing_ok=True)
+
+
 CUSTOM_TOOLS = [
     telegram_send, telegram_send_file, save_handover, self_restart, self_update,
     update_config, read_skill_tool, search_sessions,
     browse, browser_click, browser_type, browser_screenshot, browser_eval,
+    telegram_send_voice,
 ]

@@ -58,6 +58,63 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
         return f"Error: {e}"
 
 
+def _send_telegram_voice(chat_id: str, audio_path: str, caption: str = "") -> str:
+    """Send a voice message (OGG/Opus) to a Telegram chat. Returns 'Sent.' or an error string."""
+    try:
+        path = Path(audio_path).resolve()
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        with open(path, "rb") as f:
+            with httpx.Client(timeout=30) as client:
+                data = {"chat_id": chat_id}
+                if caption:
+                    data["caption"] = caption[:1024]
+                r = client.post(
+                    f"https://api.telegram.org/bot{token}/sendVoice",
+                    data=data,
+                    files={"voice": (path.name, f, "audio/ogg")},
+                )
+        return "Sent." if r.is_success else f"Failed: {r.text}"
+    except FileNotFoundError:
+        return f"File not found: {audio_path}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural") -> str:
+    """Convert text to OGG voice file using edge-tts. Returns output path or error."""
+    import asyncio
+    import subprocess
+    import tempfile
+
+    try:
+        # edge-tts outputs MP3; convert to OGG/Opus for Telegram voice messages
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            mp3_path = tmp.name
+
+        # Use edge-tts CLI (simpler than async API in sync context)
+        result = subprocess.run(
+            ["edge-tts", "--voice", voice, "--text", text, "--write-media", mp3_path],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return f"TTS failed: {result.stderr[:200]}"
+
+        # Convert MP3 to OGG/Opus using ffmpeg
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", mp3_path, "-c:a", "libopus", "-b:a", "48k", output_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        # Clean up MP3
+        Path(mp3_path).unlink(missing_ok=True)
+
+        if result.returncode != 0:
+            return f"FFmpeg conversion failed: {result.stderr[:200]}"
+
+        return output_path
+    except Exception as e:
+        return f"Error: {e}"
+
+
 class TelegramSender:
     """Send Telegram messages. Used by scheduler for cron job delivery."""
 

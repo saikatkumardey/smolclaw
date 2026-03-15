@@ -1,6 +1,6 @@
 [project]
 name = "smolclaw"
-version = "0.4.4"
+version = "0.4.5"
 description = "Self-hosted Telegram AI agent. 10 tools, skills, heartbeat, CLI learning."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ dependencies = [
     "questionary>=2.0.0",
     "typer>=0.24.1",
     "playwright>=1.40.0",
+    "edge-tts>=6.1.0",
 ]
 
 [project.scripts]
