@@ -60,6 +60,9 @@ def setup_scheduler() -> BackgroundScheduler:
 
     data = yaml.safe_load(crons_path.read_text()) or {}
     for job in data.get("jobs", []):
+        if job.get("disabled"):
+            logger.info("Skipping disabled job: {}", job.get("id", "?"))
+            continue
         missing = [f for f in ("id", "cron", "prompt") if f not in job]
         if missing:
             logger.warning("Skipping cron job — missing fields: %s", missing)
