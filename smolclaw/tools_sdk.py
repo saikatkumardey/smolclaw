@@ -45,11 +45,85 @@ async def self_restart(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
+def _get_update_summary(source: str, old_version: str) -> str:
+    """Get version and changelog after a successful update."""
+    import importlib.metadata
+    import re
+
+    # Get new version from the freshly installed package
+    try:
+        # Invalidate cached metadata so we pick up the new install
+        importlib.metadata.packages_distributions.cache_clear()
+    except AttributeError:
+        pass
+    try:
+        new_ver_result = subprocess.run(
+            ["uv", "tool", "run", "smolclaw", "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        new_version = new_ver_result.stdout.strip() if new_ver_result.returncode == 0 else None
+    except Exception:
+        new_version = None
+
+    if not new_version:
+        # Fallback: parse from uv tool list
+        try:
+            list_result = subprocess.run(
+                ["uv", "tool", "list"], capture_output=True, text=True, timeout=10,
+            )
+            for line in list_result.stdout.splitlines():
+                if "smolclaw" in line.lower():
+                    m = re.search(r"v?(\d+\.\d+\.\d+)", line)
+                    if m:
+                        new_version = m.group(1)
+                    break
+        except Exception:
+            pass
+
+    new_version = new_version or "unknown"
+
+    # Get recent commits from GitHub for the changelog
+    changes = []
+    try:
+        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
+        if repo_match:
+            repo = repo_match.group(1).rstrip(".git")
+            import requests
+            resp = requests.get(
+                f"https://api.github.com/repos/{repo}/commits",
+                params={"per_page": "10"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                for commit in resp.json():
+                    msg = commit.get("commit", {}).get("message", "").split("\n")[0]
+                    if msg and not msg.startswith("bump version"):
+                        changes.append(f"- {msg}")
+                        if len(changes) >= 5:
+                            break
+    except Exception:
+        pass
+
+    parts = [f"Updated: {old_version} -> {new_version}"]
+    if changes:
+        parts.append("\nRecent changes:\n" + "\n".join(changes))
+    return "\n".join(parts)
+
+
 @tool("self_update", "Pull latest smolclaw from GitHub, reinstall, and restart. Always call save_handover first.", {})
 async def self_update(args: dict) -> dict:
+    import importlib.metadata
+
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
     if not source.startswith(_ALLOWED_SOURCE_PREFIX):
         return {"content": [{"type": "text", "text": f"Error: SMOLCLAW_SOURCE {source!r} is not an allowed update URL."}]}
+
+    # Capture current version before update
+    try:
+        old_version = importlib.metadata.version("smolclaw")
+    except Exception:
+        old_version = "unknown"
+
     result = subprocess.run(
         ["uv", "tool", "install", "--upgrade", source],
         capture_output=True, text=True, timeout=120,
@@ -60,8 +134,16 @@ async def self_update(args: dict) -> dict:
         if chat_id:
             await asyncio.to_thread(_send_telegram, chat_id, msg)
         return {"content": [{"type": "text", "text": msg}]}
+
+    # Build update summary with version + changelog
+    summary = _get_update_summary(source, old_version)
     if chat_id:
-        await asyncio.to_thread(_send_telegram, chat_id, "✓ Update successful. Restarting…")
+        await asyncio.to_thread(_send_telegram, chat_id, f"Update successful. Restarting...\n\n{summary}")
+
+    # Save summary in handover so the agent knows what changed after restart
+    from .handover import save
+    save(f"Self-update completed.\n\n{summary}\n\nPENDING: none")
+
     exe = shutil.which("smolclaw") or sys.argv[0]
     base = sys.argv[1:] if sys.argv[1:] else ["start"]
     if "--foreground" not in base and "-f" not in base:
