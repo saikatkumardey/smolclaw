@@ -281,8 +281,7 @@ class TestOnUpdate:
         async def fake_to_thread(fn, *a, **kw):
             return mock_resp  # only call is requests.get — returns same version
 
-        import smolclaw.handlers as _h
-        with patch.object(_h.asyncio, "to_thread", side_effect=fake_to_thread):
+        with patch("smolclaw.handlers._check_remote_version", return_value="0.5.0"):
             await on_update(update, ctx)
 
         replies = [call[0][0] for call in update.message.reply_text.await_args_list]
@@ -298,10 +297,6 @@ class TestOnUpdate:
 
         monkeypatch.setattr("smolclaw.handlers._local_version", lambda: "0.4.7")
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = 'version = "0.5.0"'
-
         mock_install = MagicMock()
         mock_install.returncode = 0
         mock_install.stdout = "Installed"
@@ -312,11 +307,11 @@ class TestOnUpdate:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return mock_resp
+                return "0.5.0"         # _check_remote_version
             elif call_count == 2:
-                return mock_install
+                return mock_install    # subprocess.run (uv install)
             else:
-                return "Updated: 0.4.7 -> 0.5.0"
+                return "Updated: 0.4.7 -> 0.5.0"  # _get_update_summary
 
         import smolclaw.handlers as _h
         with patch.object(_h.asyncio, "to_thread", side_effect=fake_to_thread), \

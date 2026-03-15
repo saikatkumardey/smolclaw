@@ -30,6 +30,7 @@ Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in 
 | `tool_loader.py` | Hot-loads `~/.smolclaw/tools/*.py` as SDK tools on every request |
 | `browser.py` | Playwright browser manager (lazy singleton, per-chat contexts) |
 | `main.py` | CLI entrypoint, bot wiring, startup/shutdown hooks |
+| `version.py` | Shared version utilities: `local_version()`, `check_remote_version()`, `get_update_summary()` |
 | `handover.py` | Save/load/clear handover notes across restarts |
 
 ## Tools
@@ -42,14 +43,14 @@ Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in 
 
 ## Things that bite you
 
-- **`/update` handler is separate from `self_update` tool.** Both do `uv tool install --upgrade` + `os.execv`. Changes to update logic must be applied to both `handlers.py:on_update` and `tools_sdk.py:self_update`.
+- **`/update` handler is separate from `self_update` tool.** Both call `uv tool install --upgrade` then SIGTERM for systemd restart. Version logic is shared via `version.py` — don't duplicate.
 - **Tool wrapper casts ALL params to strings.** Every tool (built-in and dynamic) must defensively coerce: `int()`, `json.loads()` with try/except. Never trust types.
 - **System prompt is built once per client, not per message.** Don't add per-message dynamic content to `_system_prompt()` — it breaks prompt caching. Put ephemeral info in the user message instead.
 - **Dynamic tool change resets the session.** Adding/modifying a `.py` in `tools/` silently drops conversation history for that chat. Browser contexts are cleaned up too.
 - **Handover is one-shot.** Written to `handover.md`, injected into system prompt on next client creation, then deleted. Max 4000 chars.
 - **Edited messages are reprocessed.** `on_message` handles both `update.message` and `update.edited_message`. Use `update.edited_message or update.message` to get the right one.
 - **Test mocks need `edited_message = None`.** MagicMock is truthy — tests that create mock Updates must explicitly set `update.edited_message = None` or the handler picks up the mock as an edit.
-- **`importlib.metadata` doesn't work in uv tool installs.** `importlib.metadata.version("smolclaw")` throws `PackageNotFoundError` when installed via `uv tool install`. Use `_local_version()` (in both `handlers.py` and `tools_sdk.py`) which falls back to parsing `uv tool list` output, then `pyproject.toml`.
+- **`importlib.metadata` doesn't work in uv tool installs.** `importlib.metadata.version("smolclaw")` throws `PackageNotFoundError` when installed via `uv tool install`. Use `version.local_version()` which falls back to parsing `uv tool list` output, then `pyproject.toml`.
 - **Always end-to-end test before pushing, not just unit tests.** Unit tests passing doesn't mean the feature works in the real environment. For version checks, runtime metadata, or anything environment-dependent — verify the actual function output in a quick `uv run python -c "..."` smoke test.
 
 ## Conventions

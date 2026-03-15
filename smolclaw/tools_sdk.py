@@ -17,32 +17,7 @@ from .auth import is_allowed, default_chat_id
 _ALLOWED_SOURCE_PREFIX = "git+https://github.com/saikatkumardey/smolclaw"
 
 
-def _local_version() -> str:
-    """Get installed smolclaw version, with fallbacks."""
-    import importlib.metadata
-    import re
-    try:
-        return importlib.metadata.version("smolclaw")
-    except Exception:
-        pass
-    try:
-        result = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=10)
-        for line in result.stdout.splitlines():
-            if "smolclaw" in line.lower():
-                m = re.search(r"v?(\d+\.\d+\.\d+)", line)
-                if m:
-                    return m.group(1)
-    except Exception:
-        pass
-    try:
-        toml = Path(__file__).parent.parent / "pyproject.toml"
-        if toml.exists():
-            m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text())
-            if m:
-                return m.group(1)
-    except Exception:
-        pass
-    return "unknown"
+from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
 
 
 @tool("telegram_send", "Send a Telegram message to a chat_id. For cron delivery.", {"chat_id": str, "message": str})
@@ -69,71 +44,6 @@ async def self_restart(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
-def _get_update_summary(source: str, old_version: str) -> str:
-    """Get version and changelog after a successful update."""
-    import importlib.metadata
-    import re
-
-    # Get new version from the freshly installed package
-    try:
-        # Invalidate cached metadata so we pick up the new install
-        importlib.metadata.packages_distributions.cache_clear()
-    except AttributeError:
-        pass
-    try:
-        new_ver_result = subprocess.run(
-            ["uv", "tool", "run", "smolclaw", "--version"],
-            capture_output=True, text=True, timeout=10,
-        )
-        new_version = new_ver_result.stdout.strip() if new_ver_result.returncode == 0 else None
-    except Exception:
-        new_version = None
-
-    if not new_version:
-        # Fallback: parse from uv tool list
-        try:
-            list_result = subprocess.run(
-                ["uv", "tool", "list"], capture_output=True, text=True, timeout=10,
-            )
-            for line in list_result.stdout.splitlines():
-                if "smolclaw" in line.lower():
-                    m = re.search(r"v?(\d+\.\d+\.\d+)", line)
-                    if m:
-                        new_version = m.group(1)
-                    break
-        except Exception:
-            pass
-
-    new_version = new_version or "unknown"
-
-    # Get recent commits from GitHub for the changelog
-    changes = []
-    try:
-        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-        if repo_match:
-            repo = repo_match.group(1).rstrip(".git")
-            import requests
-            resp = requests.get(
-                f"https://api.github.com/repos/{repo}/commits",
-                params={"per_page": "10"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                for commit in resp.json():
-                    msg = commit.get("commit", {}).get("message", "").split("\n")[0]
-                    if msg and not msg.startswith("bump version"):
-                        changes.append(f"- {msg}")
-                        if len(changes) >= 5:
-                            break
-    except Exception:
-        pass
-
-    parts = [f"Updated: {old_version} -> {new_version}"]
-    if changes:
-        parts.append("\nRecent changes:\n" + "\n".join(changes))
-    return "\n".join(parts)
-
-
 @tool("self_update", "Check for updates and install if a newer version is available. Always call save_handover first.", {})
 async def self_update(args: dict) -> dict:
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
@@ -142,23 +52,9 @@ async def self_update(args: dict) -> dict:
 
     old_version = _local_version()
 
-    # Check remote version before installing
-    import re
-    try:
-        import requests
-        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-        if repo_match:
-            repo = repo_match.group(1).rstrip(".git")
-            resp = requests.get(
-                f"https://raw.githubusercontent.com/{repo}/main/pyproject.toml",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                m = re.search(r'version\s*=\s*"([^"]+)"', resp.text)
-                if m and m.group(1) == old_version:
-                    return _text(f"Already on latest version (v{old_version}). No update needed.")
-    except Exception:
-        pass  # can't check — proceed with update
+    remote = _check_remote_version(source)
+    if remote and remote == old_version:
+        return _text(f"Already on latest version (v{old_version}). No update needed.")
 
     # Actually install
     result = subprocess.run(

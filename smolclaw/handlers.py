@@ -5,8 +5,6 @@ import asyncio
 import logging
 import os
 import re
-import shutil
-import sys
 from pathlib import Path
 
 import yaml
@@ -55,100 +53,7 @@ def _classify_error(e: Exception) -> str:
     return "Something went wrong. Check the logs."
 
 
-def _local_version() -> str:
-    """Get installed smolclaw version, with CLI fallback."""
-    import importlib.metadata
-    import re
-    import subprocess
-    try:
-        return importlib.metadata.version("smolclaw")
-    except Exception:
-        pass
-    # Fallback: parse from uv tool list
-    try:
-        result = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=10)
-        for line in result.stdout.splitlines():
-            if "smolclaw" in line.lower():
-                m = re.search(r"v?(\d+\.\d+\.\d+)", line)
-                if m:
-                    return m.group(1)
-    except Exception:
-        pass
-    # Fallback: read pyproject.toml directly
-    try:
-        import pathlib
-        toml = pathlib.Path(__file__).parent.parent / "pyproject.toml"
-        if toml.exists():
-            m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text())
-            if m:
-                return m.group(1)
-    except Exception:
-        pass
-    return "unknown"
-
-
-def _get_update_summary(source: str, old_version: str) -> str:
-    """Get version and changelog after a successful update."""
-    import re
-    import subprocess as _subprocess
-
-    # Get new version from the freshly installed binary
-    new_version = None
-    try:
-        ver_result = _subprocess.run(
-            ["uv", "tool", "run", "smolclaw", "--", "--version"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if ver_result.returncode == 0:
-            # Output is "smolclaw X.Y.Z"
-            m = re.search(r"(\d+\.\d+\.\d+)", ver_result.stdout)
-            if m:
-                new_version = m.group(1)
-    except Exception:
-        pass
-
-    if not new_version:
-        try:
-            list_result = _subprocess.run(
-                ["uv", "tool", "list"], capture_output=True, text=True, timeout=10,
-            )
-            for line in list_result.stdout.splitlines():
-                if "smolclaw" in line.lower():
-                    m = re.search(r"(\d+\.\d+\.\d+)", line)
-                    if m:
-                        new_version = m.group(1)
-                    break
-        except Exception:
-            pass
-
-    new_version = new_version or "unknown"
-
-    # Get recent commits from GitHub
-    changes = []
-    try:
-        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-        if repo_match:
-            repo = repo_match.group(1).rstrip(".git")
-            import requests as _req
-            resp = _req.get(
-                f"https://api.github.com/repos/{repo}/commits",
-                params={"per_page": "10"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                for commit in resp.json():
-                    msg = commit.get("commit", {}).get("message", "").split("\n")[0]
-                    if msg and not msg.startswith("bump version"):
-                        changes.append(f"- {msg}")
-                        if len(changes) >= 5:
-                            break
-    except Exception:
-        pass
-
-    parts = [f"{old_version} -> {new_version}"]
-    if changes:
-        parts.append("\nRecent changes:\n" + "\n".join(changes))
-    return "\n".join(parts)
+from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
 
 
 class _TypingLoop:
@@ -468,55 +373,34 @@ async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> No
 
 @require_allowed
 async def on_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    import signal
     await update.message.reply_text("Restarting…")
     try:
         from .handover import save
         save("Process restarting via /restart command.")
     except Exception:
         pass
-    try:
-        from .scheduler import scheduler as _sched
-        _sched.shutdown(wait=False)
-    except Exception:
-        pass
-    exe = shutil.which("smolclaw") or sys.argv[0]
-    argv = [exe, "start"] if len(sys.argv) < 2 else [exe] + sys.argv[1:]
-    os.execv(exe, argv)
+    # Clean exit — let systemd (Restart=always) bring us back.
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @require_allowed
 async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import signal
     import subprocess as _subprocess
 
     from .handover import save as save_handover
 
     old_version = _local_version()
+    source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
 
     await update.message.reply_text("Checking for updates…")
 
-    source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
+    remote = await asyncio.to_thread(_check_remote_version, source)
+    if remote and remote == old_version:
+        await update.message.reply_text(f"Already on latest version (v{old_version}). No update needed.")
+        return
 
-    # Check remote version from pyproject.toml on GitHub
-    import re as _re
-    try:
-        import requests as _requests
-        repo_match = _re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-        if repo_match:
-            repo = repo_match.group(1).rstrip(".git")
-            resp = await asyncio.to_thread(
-                _requests.get,
-                f"https://raw.githubusercontent.com/{repo}/main/pyproject.toml",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                m = _re.search(r'version\s*=\s*"([^"]+)"', resp.text)
-                if m and m.group(1) == old_version:
-                    await update.message.reply_text(f"Already on latest version (v{old_version}). No update needed.")
-                    return
-    except Exception:
-        pass  # can't check — proceed with update
-
-    # Actually install
     await update.message.reply_text("Update available — installing…")
     try:
         result = await asyncio.to_thread(
@@ -532,7 +416,6 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Update failed:\n{result.stderr[:500]}")
         return
 
-    # Get new version + changelog
     summary = await asyncio.to_thread(_get_update_summary, source, old_version)
 
     try:
@@ -543,8 +426,6 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Updated. Restarting…\n\n{summary}")
 
     # Clean exit — let systemd (Restart=always) bring us back with the new binary.
-    # os.execv reuses the old Python interpreter which may point to a stale venv.
-    import signal
     os.kill(os.getpid(), signal.SIGTERM)
 
 
