@@ -55,6 +55,70 @@ def _classify_error(e: Exception) -> str:
     return "Something went wrong. Check the logs."
 
 
+def _get_update_summary(source: str, old_version: str) -> str:
+    """Get version and changelog after a successful update."""
+    import re
+    import subprocess as _subprocess
+
+    # Get new version from the freshly installed binary
+    new_version = None
+    try:
+        ver_result = _subprocess.run(
+            ["uv", "tool", "run", "smolclaw", "--", "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if ver_result.returncode == 0:
+            # Output is "smolclaw X.Y.Z"
+            m = re.search(r"(\d+\.\d+\.\d+)", ver_result.stdout)
+            if m:
+                new_version = m.group(1)
+    except Exception:
+        pass
+
+    if not new_version:
+        try:
+            list_result = _subprocess.run(
+                ["uv", "tool", "list"], capture_output=True, text=True, timeout=10,
+            )
+            for line in list_result.stdout.splitlines():
+                if "smolclaw" in line.lower():
+                    m = re.search(r"(\d+\.\d+\.\d+)", line)
+                    if m:
+                        new_version = m.group(1)
+                    break
+        except Exception:
+            pass
+
+    new_version = new_version or "unknown"
+
+    # Get recent commits from GitHub
+    changes = []
+    try:
+        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
+        if repo_match:
+            repo = repo_match.group(1).rstrip(".git")
+            import requests as _req
+            resp = _req.get(
+                f"https://api.github.com/repos/{repo}/commits",
+                params={"per_page": "10"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                for commit in resp.json():
+                    msg = commit.get("commit", {}).get("message", "").split("\n")[0]
+                    if msg and not msg.startswith("bump version"):
+                        changes.append(f"- {msg}")
+                        if len(changes) >= 5:
+                            break
+    except Exception:
+        pass
+
+    parts = [f"{old_version} -> {new_version}"]
+    if changes:
+        parts.append("\nRecent changes:\n" + "\n".join(changes))
+    return "\n".join(parts)
+
+
 class _TypingLoop:
     """Keep the 'typing...' indicator alive until the task completes."""
 
@@ -375,20 +439,23 @@ async def on_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 @require_allowed
 async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    import subprocess
+    import importlib.metadata
+    import subprocess as _subprocess
+
     from .handover import save as save_handover
 
     await update.message.reply_text("Saving handover and updating…")
 
+    # Capture current version
     try:
-        save_handover("Process updating via /update command. Resuming after restart.")
-    except Exception as e:
-        logger.warning("Handover save failed: %s", e)
+        old_version = importlib.metadata.version("smolclaw")
+    except Exception:
+        old_version = "unknown"
 
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
     try:
         result = await asyncio.to_thread(
-            subprocess.run,
+            _subprocess.run,
             ["uv", "tool", "install", "--upgrade", source],
             capture_output=True, text=True, timeout=120,
         )
@@ -400,7 +467,15 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Update failed:\n{result.stderr[:500]}")
         return
 
-    await update.message.reply_text("Updated. Restarting…")
+    # Get new version + changelog
+    summary = await asyncio.to_thread(_get_update_summary, source, old_version)
+
+    try:
+        save_handover(f"Updated via /update command.\n\n{summary}\n\nPENDING: none")
+    except Exception as e:
+        logger.warning("Handover save failed: %s", e)
+
+    await update.message.reply_text(f"Updated. Restarting…\n\n{summary}")
 
     try:
         from .scheduler import scheduler as _sched
