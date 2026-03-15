@@ -27,9 +27,13 @@ from .tools_sdk import CUSTOM_TOOLS
 from . import workspace
 from .config import Config
 from .session_state import SessionState
-from .handover import load as handover_load, clear as handover_clear, exists as handover_exists
+from .handover import load as handover_load, clear as handover_clear, exists as handover_exists, save as handover_save
 
 from loguru import logger
+
+# Auto-rotation: when context exceeds this fraction, build a handover and reset
+_AUTO_ROTATE_THRESHOLD = 0.70
+_CONTEXT_WINDOW_TOKENS = 200_000
 
 # Task registry: task_id -> {task, description, started_at, status}
 _task_registry: dict[str, dict] = {}
@@ -232,6 +236,55 @@ def _system_prompt() -> str:
     return "\n\n".join(parts)
 
 
+def _context_fill_from_result(result: ResultMessage | None) -> float:
+    """Return context fill fraction (0.0–1.0) from a ResultMessage."""
+    if not result:
+        return 0.0
+    usage = result.usage or {}
+    used = usage.get("cache_read_input_tokens", 0) + usage.get("input_tokens", 0)
+    return used / _CONTEXT_WINDOW_TOKENS
+
+
+def _build_auto_handover(chat_id: str) -> str:
+    """Build a handover summary from recent session log entries for this chat_id."""
+    sessions_dir = workspace.HOME / "sessions"
+    if not sessions_dir.exists():
+        return ""
+
+    # Collect recent messages for this chat from the last 2 days of logs
+    files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:2]
+    messages: list[dict] = []
+    for f in files:
+        try:
+            for line in f.read_text().splitlines():
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                if entry.get("chat_id") != chat_id:
+                    continue
+                if entry.get("role") in ("user", "assistant"):
+                    content = entry.get("content", "")
+                    if isinstance(content, str) and content.strip():
+                        messages.append(entry)
+        except Exception:
+            continue
+
+    if not messages:
+        return ""
+
+    # Take the last 10 exchanges (enough for context, fits in 4000 chars)
+    recent = messages[-10:]
+    parts = ["CONTEXT (recent conversation):"]
+    for msg in recent:
+        role = msg["role"]
+        content = msg["content"][:300]
+        ts = msg.get("ts", "")[:16]
+        parts.append(f"[{ts}] {role}: {content}")
+
+    parts.append("\nPENDING: none (auto-rotated due to context pressure)")
+    return "\n".join(parts)
+
+
 def _make_spawn_task_tool(chat_id: str, cfg: Config):
     """Build spawn_task with task registry and progress-capable sub-agents."""
     from .tools import _send_telegram
@@ -409,4 +462,19 @@ async def run(chat_id: str, user_message: str) -> str:
         reply = "Something went wrong. Please try again."
 
     session_log(chat_id, "assistant", reply)
+
+    # Auto-rotate: if context is filling up, save handover and reset for next message
+    try:
+        session = _sessions.get(chat_id)
+        if session and session.last_result:
+            fill = _context_fill_from_result(session.last_result)
+            if fill >= _AUTO_ROTATE_THRESHOLD:
+                logger.info("Auto-rotating session {} (context at {:.0%})", chat_id, fill)
+                handover_text = _build_auto_handover(chat_id)
+                if handover_text:
+                    handover_save(handover_text)
+                await reset_session(chat_id)
+    except Exception as e:
+        logger.warning("Auto-rotation failed for {}: {}", chat_id, e)
+
     return reply

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -110,4 +111,73 @@ async def read_skill_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": content}]}
 
 
-CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update, update_config, read_skill_tool]
+@tool(
+    "search_sessions",
+    "Search past conversation logs. Use this before claiming you don't remember something. "
+    "Returns matching messages from session history.",
+    {"query": str, "date": str, "chat_id": str},
+)
+async def search_sessions(args: dict) -> dict:
+    query_str = str(args.get("query", ""))
+    date_filter = str(args.get("date", ""))  # optional YYYY-MM-DD
+    chat_filter = str(args.get("chat_id", ""))  # optional
+
+    sessions_dir = workspace.HOME / "sessions"
+    if not sessions_dir.exists():
+        return {"content": [{"type": "text", "text": "No session logs found."}]}
+
+    # Determine files to search
+    if date_filter:
+        files = [sessions_dir / f"{date_filter}.jsonl"]
+    else:
+        files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:7]
+
+    # Try qmd first (semantic search) if available and query is non-trivial
+    if shutil.which("qmd") and len(query_str) > 3:
+        try:
+            qmd_result = await asyncio.to_thread(
+                subprocess.run,
+                ["qmd", "search", query_str, "--limit", "10"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if qmd_result.returncode == 0 and qmd_result.stdout.strip():
+                return {"content": [{"type": "text", "text": f"[qmd results]\n{qmd_result.stdout.strip()}"}]}
+        except Exception:
+            pass  # fall through to grep
+
+    # Fallback: grep through JSONL session logs
+    results = []
+    query_lower = query_str.lower()
+    for f in files:
+        if not f.exists():
+            continue
+        try:
+            for line in f.read_text().splitlines():
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                if entry.get("role") not in ("user", "assistant"):
+                    continue
+                if chat_filter and entry.get("chat_id") != chat_filter:
+                    continue
+                content = entry.get("content", "")
+                if not isinstance(content, str):
+                    continue
+                if query_lower in content.lower():
+                    ts = entry.get("ts", "")[:16]
+                    cid = entry.get("chat_id", "")
+                    snippet = content[:300]
+                    results.append(f"[{ts}] ({cid}) {entry['role']}: {snippet}")
+                    if len(results) >= 20:
+                        break
+        except Exception:
+            continue
+        if len(results) >= 20:
+            break
+
+    if not results:
+        return {"content": [{"type": "text", "text": f"No matches for '{query_str}' in recent session logs."}]}
+    return {"content": [{"type": "text", "text": "\n\n".join(results)}]}
+
+
+CUSTOM_TOOLS = [telegram_send, telegram_send_file, save_handover, self_restart, self_update, update_config, read_skill_tool, search_sessions]
