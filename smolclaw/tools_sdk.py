@@ -110,13 +110,13 @@ def _get_update_summary(source: str, old_version: str) -> str:
     return "\n".join(parts)
 
 
-@tool("self_update", "Pull latest smolclaw from GitHub, reinstall, and restart. Always call save_handover first.", {})
+@tool("self_update", "Check for updates and install if a newer version is available. Always call save_handover first.", {})
 async def self_update(args: dict) -> dict:
     import importlib.metadata
 
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
     if not source.startswith(_ALLOWED_SOURCE_PREFIX):
-        return {"content": [{"type": "text", "text": f"Error: SMOLCLAW_SOURCE {source!r} is not an allowed update URL."}]}
+        return _text(f"Error: SMOLCLAW_SOURCE {source!r} is not an allowed update URL.")
 
     # Capture current version before update
     try:
@@ -124,6 +124,25 @@ async def self_update(args: dict) -> dict:
     except Exception:
         old_version = "unknown"
 
+    # Check remote version before installing
+    import re
+    try:
+        import requests
+        repo_match = re.search(r"github\.com/([^/]+/[^/.\\s]+)", source)
+        if repo_match:
+            repo = repo_match.group(1).rstrip(".git")
+            resp = requests.get(
+                f"https://raw.githubusercontent.com/{repo}/main/pyproject.toml",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                m = re.search(r'version\s*=\s*"([^"]+)"', resp.text)
+                if m and m.group(1) == old_version:
+                    return _text(f"Already on latest version (v{old_version}). No update needed.")
+    except Exception:
+        pass  # can't check — proceed with update
+
+    # Actually install
     result = subprocess.run(
         ["uv", "tool", "install", "--upgrade", source],
         capture_output=True, text=True, timeout=120,
@@ -133,7 +152,7 @@ async def self_update(args: dict) -> dict:
         msg = f"Update failed:\n{result.stderr}"
         if chat_id:
             await asyncio.to_thread(_send_telegram, chat_id, msg)
-        return {"content": [{"type": "text", "text": msg}]}
+        return _text(msg)
 
     # Build update summary with version + changelog
     summary = _get_update_summary(source, old_version)
@@ -149,7 +168,7 @@ async def self_update(args: dict) -> dict:
     if "--foreground" not in base and "-f" not in base:
         base = base + ["--foreground"]
     os.execv(exe, [exe] + base)
-    return {"content": [{"type": "text", "text": "unreachable"}]}
+    return _text("unreachable")
 
 
 @tool("telegram_send_file", "Send a local file (markdown, CSV, script, image, etc.) to a Telegram chat_id.", {"chat_id": str, "file_path": str})

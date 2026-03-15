@@ -459,15 +459,38 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     from .handover import save as save_handover
 
-    await update.message.reply_text("Saving handover and updating…")
-
     # Capture current version
     try:
         old_version = importlib.metadata.version("smolclaw")
     except Exception:
         old_version = "unknown"
 
+    await update.message.reply_text("Checking for updates…")
+
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
+
+    # Check remote version from pyproject.toml on GitHub
+    import re as _re
+    try:
+        import requests as _requests
+        repo_match = _re.search(r"github\.com/([^/]+/[^/.\\s]+)", source)
+        if repo_match:
+            repo = repo_match.group(1).rstrip(".git")
+            resp = await asyncio.to_thread(
+                _requests.get,
+                f"https://raw.githubusercontent.com/{repo}/main/pyproject.toml",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                m = _re.search(r'version\s*=\s*"([^"]+)"', resp.text)
+                if m and m.group(1) == old_version:
+                    await update.message.reply_text(f"Already on latest version (v{old_version}). No update needed.")
+                    return
+    except Exception:
+        pass  # can't check — proceed with update
+
+    # Actually install
+    await update.message.reply_text("Update available — installing…")
     try:
         result = await asyncio.to_thread(
             _subprocess.run,
