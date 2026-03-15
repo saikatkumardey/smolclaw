@@ -256,3 +256,76 @@ class TestErrorClassification:
         msg = update.message.reply_text.await_args_list[0][0][0]
         assert "wrong" in msg.lower()
         assert "wat" not in msg  # should not leak internal error
+
+
+# ---------------------------------------------------------------------------
+# on_update — restart behavior
+# ---------------------------------------------------------------------------
+
+class TestOnUpdate:
+    @pytest.mark.asyncio
+    async def test_same_version_no_restart(self, monkeypatch):
+        """When remote version == local version, should NOT restart."""
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_update
+        update = _make_update(text="/update")
+        ctx = _make_context()
+
+        monkeypatch.setattr("smolclaw.handlers._local_version", lambda: "0.5.0")
+
+        # Mock requests.get response
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = 'version = "0.5.0"'
+
+        async def fake_to_thread(fn, *a, **kw):
+            return mock_resp  # only call is requests.get — returns same version
+
+        import smolclaw.handlers as _h
+        with patch.object(_h.asyncio, "to_thread", side_effect=fake_to_thread):
+            await on_update(update, ctx)
+
+        replies = [call[0][0] for call in update.message.reply_text.await_args_list]
+        assert any("already on latest" in r.lower() or "no update needed" in r.lower() for r in replies)
+
+    @pytest.mark.asyncio
+    async def test_new_version_uses_clean_exit(self, monkeypatch):
+        """When a real update happens, should do a clean process exit, not os.execv."""
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_update
+        update = _make_update(text="/update")
+        ctx = _make_context()
+
+        monkeypatch.setattr("smolclaw.handlers._local_version", lambda: "0.4.7")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = 'version = "0.5.0"'
+
+        mock_install = MagicMock()
+        mock_install.returncode = 0
+        mock_install.stdout = "Installed"
+        mock_install.stderr = ""
+
+        call_count = 0
+        async def fake_to_thread(fn, *a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_resp
+            elif call_count == 2:
+                return mock_install
+            else:
+                return "Updated: 0.4.7 -> 0.5.0"
+
+        import smolclaw.handlers as _h
+        with patch.object(_h.asyncio, "to_thread", side_effect=fake_to_thread), \
+             patch.object(_h, "save_handover", create=True), \
+             patch("os.kill") as mock_kill, \
+             patch("os.getpid", return_value=12345), \
+             patch("os.execv") as mock_execv:
+            await on_update(update, ctx)
+
+        mock_execv.assert_not_called()
+        import signal
+        mock_kill.assert_called_with(12345, signal.SIGTERM)

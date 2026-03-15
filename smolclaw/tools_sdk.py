@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 from claude_agent_sdk import tool
@@ -63,13 +62,10 @@ async def save_handover(args: dict) -> dict:
 
 @tool("self_restart", "Restart the smolclaw process in-place. Always call save_handover first.", {})
 async def self_restart(args: dict) -> dict:
+    import signal
     if chat_id := default_chat_id():
         await asyncio.to_thread(_send_telegram, chat_id, "Restarting…")
-    exe = shutil.which("smolclaw") or sys.argv[0]
-    base = sys.argv[1:] if sys.argv[1:] else ["start"]
-    if "--foreground" not in base and "-f" not in base:
-        base = base + ["--foreground"]
-    os.execv(exe, [exe] + base)
+    os.kill(os.getpid(), signal.SIGTERM)
     return {"content": [{"type": "text", "text": "unreachable"}]}
 
 
@@ -150,7 +146,7 @@ async def self_update(args: dict) -> dict:
     import re
     try:
         import requests
-        repo_match = re.search(r"github\.com/([^/]+/[^/.\\s]+)", source)
+        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
         if repo_match:
             repo = repo_match.group(1).rstrip(".git")
             resp = requests.get(
@@ -185,11 +181,8 @@ async def self_update(args: dict) -> dict:
     from .handover import save
     save(f"Self-update completed.\n\n{summary}\n\nPENDING: none")
 
-    exe = shutil.which("smolclaw") or sys.argv[0]
-    base = sys.argv[1:] if sys.argv[1:] else ["start"]
-    if "--foreground" not in base and "-f" not in base:
-        base = base + ["--foreground"]
-    os.execv(exe, [exe] + base)
+    import signal
+    os.kill(os.getpid(), signal.SIGTERM)
     return _text("unreachable")
 
 

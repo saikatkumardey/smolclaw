@@ -500,7 +500,7 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     import re as _re
     try:
         import requests as _requests
-        repo_match = _re.search(r"github\.com/([^/]+/[^/.\\s]+)", source)
+        repo_match = _re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
         if repo_match:
             repo = repo_match.group(1).rstrip(".git")
             resp = await asyncio.to_thread(
@@ -542,15 +542,10 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(f"Updated. Restarting…\n\n{summary}")
 
-    try:
-        from .scheduler import scheduler as _sched
-        _sched.shutdown(wait=False)
-    except Exception:
-        pass
-
-    exe = shutil.which("smolclaw") or sys.argv[0]
-    argv = [exe, "start"] if len(sys.argv) < 2 else [exe] + sys.argv[1:]
-    os.execv(exe, argv)
+    # Clean exit — let systemd (Restart=always) bring us back with the new binary.
+    # os.execv reuses the old Python interpreter which may point to a stale venv.
+    import signal
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @require_allowed
