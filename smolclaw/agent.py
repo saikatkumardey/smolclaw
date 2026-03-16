@@ -457,6 +457,9 @@ async def run(chat_id: str, user_message: str) -> str:
 
     lock = _session_locks[chat_id]
 
+    # Hold lock for the entire interaction to prevent concurrent messages from
+    # racing on the same ClaudeSDKClient (which splits the anyio message stream
+    # between consumers, causing "(no response)").
     async with lock:
         # Check if client needs creation or replacement
         existing = _sessions.get(chat_id)
@@ -476,62 +479,61 @@ async def run(chat_id: str, user_message: str) -> str:
                 handover_pending=has_handover,
             )
 
-    client = _sessions[chat_id].client
+        client = _sessions[chat_id].client
 
-    # Prepend current time (keeps system prompt stable for caching)
-    timestamped_message = f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
+        # Prepend current time (keeps system prompt stable for caching)
+        timestamped_message = f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
 
-    session_log(chat_id, "user", user_message)
+        session_log(chat_id, "user", user_message)
 
-    try:
-        await client.query(timestamped_message)
-        parts: list[str] = []
-        tool_names: list[str] = []
-        async for msg in client.receive_response():
-            if isinstance(msg, AssistantMessage):
-                for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        parts.append(block.text)
-                    elif isinstance(block, ToolUseBlock):
-                        tool_names.append(block.name)
-            elif isinstance(msg, ResultMessage):
-                _sessions[chat_id].last_result = msg
-                usage = msg.usage or {}
-                session_log(chat_id, "result", {
-                    "turns": msg.num_turns,
-                    "duration_ms": msg.duration_ms,
-                    "input_tokens": usage.get("input_tokens", 0),
-                    "output_tokens": usage.get("output_tokens", 0),
-                    "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
-                    "cache_write_tokens": usage.get("cache_creation_input_tokens", 0),
-                })
-                try:
-                    SessionState.load().record_turn(chat_id, msg)
-                except Exception as e:
-                    logger.warning("SessionState.record_turn failed: {}", e)
-        if parts:
-            reply = "\n".join(parts)
-        elif tool_names:
-            reply = f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
-        else:
-            reply = "(no response)"
-    except Exception as e:
-        logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
-        reply = f"Something went wrong ({type(e).__name__}). Please try again."
-    finally:
-        # Always clear handover after first turn — even on error, the handover
-        # has been injected into the system prompt and shouldn't persist.
-        session = _sessions.get(chat_id)
-        if session and session.handover_pending:
-            handover_clear()
-            session.handover_pending = False
+        try:
+            await client.query(timestamped_message)
+            parts: list[str] = []
+            tool_names: list[str] = []
+            async for msg in client.receive_response():
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            parts.append(block.text)
+                        elif isinstance(block, ToolUseBlock):
+                            tool_names.append(block.name)
+                elif isinstance(msg, ResultMessage):
+                    _sessions[chat_id].last_result = msg
+                    usage = msg.usage or {}
+                    session_log(chat_id, "result", {
+                        "turns": msg.num_turns,
+                        "duration_ms": msg.duration_ms,
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_read_tokens": usage.get("cache_read_input_tokens", 0),
+                        "cache_write_tokens": usage.get("cache_creation_input_tokens", 0),
+                    })
+                    try:
+                        SessionState.load().record_turn(chat_id, msg)
+                    except Exception as e:
+                        logger.warning("SessionState.record_turn failed: {}", e)
+            if parts:
+                reply = "\n".join(parts)
+            elif tool_names:
+                reply = f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
+            else:
+                reply = "(no response)"
+        except Exception as e:
+            logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
+            reply = f"Something went wrong ({type(e).__name__}). Please try again."
+        finally:
+            # Always clear handover after first turn — even on error, the handover
+            # has been injected into the system prompt and shouldn't persist.
+            session = _sessions.get(chat_id)
+            if session and session.handover_pending:
+                handover_clear()
+                session.handover_pending = False
 
-    session_log(chat_id, "assistant", reply)
+        session_log(chat_id, "assistant", reply)
 
-    # Auto-rotate: if context is filling up, save handover and reset for next message
-    # Must hold the lock to prevent concurrent messages from racing with rotation.
-    try:
-        async with _session_locks[chat_id]:
+        # Auto-rotate: if context is filling up, save handover and reset for next message
+        # (already holding the lock — no second acquisition needed)
+        try:
             session = _sessions.get(chat_id)
             if session and session.last_result:
                 fill = _context_fill_from_result(session.last_result)
@@ -541,9 +543,9 @@ async def run(chat_id: str, user_message: str) -> str:
                     if handover_text:
                         handover_save(handover_text)
                     await reset_session(chat_id)
-    except Exception as e:
-        logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
-        _sessions.pop(chat_id, None)
+        except Exception as e:
+            logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
+            _sessions.pop(chat_id, None)
 
     _prune_stale_locks()
     return reply
