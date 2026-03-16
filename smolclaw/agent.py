@@ -197,7 +197,8 @@ def _workspace_context() -> str:
         f"## Workspace\n"
         f"Your workspace directory: {workspace.HOME}\n"
         f"Always use these absolute paths when writing agent data files:\n"
-        f"- SOUL.md:    {workspace.SOUL}  (identity + operating instructions)\n"
+        f"- SOUL.md:    {workspace.SOUL}  (identity + personality)\n"
+        f"- AGENT.md:   {workspace.AGENT}  (operational playbook)\n"
         f"- USER.md:    {workspace.USER}\n"
         f"- MEMORY.md:  {workspace.MEMORY}\n"
         f"- crons.yaml: {workspace.CRONS}\n"
@@ -219,6 +220,7 @@ def _system_prompt() -> str:
     user_content = ""
     for path, name in (
         (workspace.SOUL, "SOUL.md"),
+        (workspace.AGENT, "AGENT.md"),
         (workspace.USER, "USER.md"),
     ):
         content = workspace.read(path)

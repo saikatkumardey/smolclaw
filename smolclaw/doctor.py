@@ -25,7 +25,7 @@ _KNOWN_MODELS = {
 }
 
 _REQUIRED_SUBDIRS = ("skills", "tools", "uploads", "sessions")
-_CORE_FILES = ("SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml")
+_CORE_FILES = ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml")
 _REQUIRED_ENV_VARS = ("TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS")
 
 _SESSION_LOG_WARN_BYTES = 100 * 1024 * 1024  # 100 MB

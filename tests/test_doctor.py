@@ -33,6 +33,7 @@ def _patch_workspace(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(ws, "HOME", tmp_path)
     monkeypatch.setattr(ws, "SOUL", tmp_path / "SOUL.md")
+    monkeypatch.setattr(ws, "AGENT", tmp_path / "AGENT.md")
     monkeypatch.setattr(ws, "USER", tmp_path / "USER.md")
     monkeypatch.setattr(ws, "MEMORY", tmp_path / "MEMORY.md")
     monkeypatch.setattr(ws, "CRONS", tmp_path / "crons.yaml")
@@ -48,7 +49,7 @@ def _make_healthy_workspace(tmp_path: Path) -> None:
     """Create a fully healthy workspace in tmp_path."""
     for d in ("skills", "tools", "uploads", "sessions"):
         (tmp_path / d).mkdir(exist_ok=True)
-    for name in ("SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"):
+    for name in ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"):
         (tmp_path / name).write_text(f"# {name}\nContent here.\n")
     (tmp_path / "crons.yaml").write_text(yaml.dump({"jobs": []}))
     (tmp_path / ".env").write_text(

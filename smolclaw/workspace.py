@@ -11,6 +11,7 @@ HOME = Path(os.getenv("SMOLCLAW_HOME", Path.home() / ".smolclaw"))
 
 # Paths inside the workspace
 SOUL       = HOME / "SOUL.md"
+AGENT      = HOME / "AGENT.md"
 USER       = HOME / "USER.md"
 MEMORY     = HOME / "MEMORY.md"
 CRONS      = HOME / "crons.yaml"
@@ -39,7 +40,7 @@ def init() -> None:
     sessions_dir.mkdir(exist_ok=True)
     sessions_dir.chmod(0o700)
 
-    for name in ("SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml"):
+    for name in ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml"):
         dest = HOME / name
         if not dest.exists():
             src = _TEMPLATES / name
