@@ -48,6 +48,16 @@ def _to_telegram_md(text: str) -> str:
     return text
 
 
+def _is_tool_noise(reply: str) -> bool:
+    """Return True if the reply is a default tool-only response with no real content.
+
+    When the agent only calls tools and returns no text, agent.run() produces
+    "Done. (used: ...)" or "(no response)". These should not be shown to the user —
+    the placeholder should just disappear silently.
+    """
+    return reply == "(no response)" or reply.startswith("Done. (used:")
+
+
 def _classify_error(e: Exception) -> str:
     """Return a user-friendly error message based on exception type."""
     if isinstance(e, asyncio.TimeoutError):
@@ -502,12 +512,19 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
-        # Append context warning to reply instead of sending a separate message
-        used, fill = _context_fill(chat_id)
-        if fill >= CONTEXT_WARN_THRESHOLD:
-            pct = fill * 100
-            reply += f"\n\n⚠️ Context at {pct:.0f}% — consider /reset soon."
-        await _reply_chunked(msg, reply, edit_message=placeholder)
+        if _is_tool_noise(reply):
+            # Agent only called tools with no text output — silently delete the placeholder
+            try:
+                await placeholder.delete()
+            except Exception:
+                pass
+        else:
+            # Append context warning to reply instead of sending a separate message
+            used, fill = _context_fill(chat_id)
+            if fill >= CONTEXT_WARN_THRESHOLD:
+                pct = fill * 100
+                reply += f"\n\n⚠️ Context at {pct:.0f}% — consider /reset soon."
+            await _reply_chunked(msg, reply, edit_message=placeholder)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
         error_msg = _classify_error(e)
@@ -552,8 +569,12 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        if reply and reply != "(no response)":
-            await context.bot.send_message(chat_id=chat_id, text=_to_telegram_md(reply), parse_mode="Markdown")
+        if reply and not _is_tool_noise(reply):
+            text = _to_telegram_md(reply)
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+            except Exception:
+                await context.bot.send_message(chat_id=chat_id, text=text)
     except Exception as e:
         logger.exception("Error handling reaction: %s", e)
 
@@ -572,7 +593,13 @@ async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, age
         )
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        await _reply_chunked(update.message, reply, edit_message=placeholder)
+        if _is_tool_noise(reply):
+            try:
+                await placeholder.delete()
+            except Exception:
+                pass
+        else:
+            await _reply_chunked(update.message, reply, edit_message=placeholder)
     except Exception as e:
         logger.exception("Error handling upload: %s", e)
         error_msg = _classify_error(e)
