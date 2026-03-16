@@ -36,7 +36,7 @@ def init() -> None:
     HOME.chmod(0o700)
     SKILLS_DIR.mkdir(exist_ok=True)
     TOOLS_DIR.mkdir(exist_ok=True)
-    TOOLS_STAGING.mkdir(exist_ok=True)
+    TOOLS_STAGING.mkdir(parents=True, exist_ok=True)
     UPLOADS_DIR.mkdir(exist_ok=True)
     UPLOADS_DIR.chmod(0o700)
     sessions_dir = HOME / "sessions"
