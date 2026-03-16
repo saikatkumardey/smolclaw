@@ -209,6 +209,18 @@ def start(
     # The SDK already calls wait() on its child processes, so zombies are not
     # an issue for normal agent sessions.
 
+    # Ensure user-local bin dirs are in PATH — systemd services get a minimal
+    # PATH that misses ~/.npm-global/bin, ~/.local/bin, etc. SDK subprocesses
+    # (claude, html2md) need these to resolve correctly.
+    _user_bin_dirs = [
+        os.path.expanduser("~/.npm-global/bin"),
+        os.path.expanduser("~/.local/bin"),
+    ]
+    current_path = os.environ.get("PATH", "")
+    missing = [d for d in _user_bin_dirs if d not in current_path.split(os.pathsep)]
+    if missing:
+        os.environ["PATH"] = os.pathsep.join(missing) + os.pathsep + current_path
+
     load_dotenv(workspace.HOME / ".env", override=True)
     from .config import Config
     cfg = Config.load()
