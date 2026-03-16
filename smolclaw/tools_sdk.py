@@ -79,12 +79,13 @@ async def self_update(args: dict) -> dict:
 
     old_version = _local_version()
 
-    remote = _check_remote_version(source)
+    remote = await asyncio.to_thread(_check_remote_version, source)
     if remote and remote == old_version:
         return _text(f"Already on latest version (v{old_version}). No update needed.")
 
-    # Actually install
-    result = subprocess.run(
+    # Actually install (blocking — run in thread to avoid stalling the event loop)
+    result = await asyncio.to_thread(
+        subprocess.run,
         ["uv", "tool", "install", "--upgrade", source],
         capture_output=True, text=True, timeout=120,
     )
