@@ -115,6 +115,24 @@ def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural")
         return f"Error: {e}"
 
 
+def _set_reaction(chat_id: str, message_id: int, emoji: str) -> str:
+    """Set a reaction emoji on a Telegram message. Returns 'Done.' or error."""
+    try:
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        with httpx.Client(timeout=10) as client:
+            r = client.post(
+                f"https://api.telegram.org/bot{token}/setMessageReaction",
+                json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "reaction": [{"type": "emoji", "emoji": emoji}],
+                },
+            )
+        return "Done." if r.is_success else f"Failed: {r.text}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 class TelegramSender:
     """Send Telegram messages. Used by scheduler for cron job delivery."""
 

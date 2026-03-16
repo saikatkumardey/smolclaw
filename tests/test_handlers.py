@@ -95,7 +95,7 @@ def _make_update(chat_id="123", text="hi"):
     update.edited_message = None
     update.message.text = text
     update.message.reply_text = AsyncMock()
-    update.message.set_reaction = AsyncMock()
+    update.message.message_id = 42
     return update
 
 

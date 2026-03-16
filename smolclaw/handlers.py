@@ -86,28 +86,6 @@ class _TypingLoop:
                 pass
 
 
-async def _react(message, emoji: str = "\U0001f440") -> None:
-    """React to a message with an emoji. Silently ignores failures."""
-    try:
-        from telegram import ReactionTypeEmoji
-        await message.set_reaction(ReactionTypeEmoji(emoji))
-    except Exception:
-        pass
-
-
-async def _react_done(message, reply: str) -> None:
-    """React with a contextual emoji based on the reply content."""
-    reply_lower = reply.lower()
-    if any(w in reply_lower for w in ("error", "failed", "traceback", "exception", "broke")):
-        emoji = "\U0001f480"  # 💀
-    elif any(w in reply_lower for w in ("deploy", "push", "ship", "launch", "live")):
-        emoji = "\U0001f525"  # 🔥
-    elif any(w in reply_lower for w in ("done", "fixed", "complete", "success", "saved", "logged")):
-        emoji = "\u2705"  # ✅
-    else:
-        emoji = "\U0001fae1"  # 🫡
-    await _react(message, emoji)
-
 
 async def _reply_chunked(message, text: str) -> None:
     """Send text in ≤MAX_TG_MSG-char chunks with Markdown, falling back to plain text."""
@@ -436,12 +414,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     text = msg.text or ""
     is_edit = update.edited_message is not None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
-    await _react(msg)
     try:
+        agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
         async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=chat_id, user_message=text)
+            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
-        await _react_done(msg, reply)
         await _reply_chunked(msg, reply)
         used, fill = _context_fill(chat_id)
         if fill >= CONTEXT_WARN_THRESHOLD:
@@ -497,7 +474,6 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id = str(update.effective_chat.id)
     doc = update.message.document
     caption = update.message.caption or ""
-    await _react(update.message)
     try:
         file = await context.bot.get_file(doc.file_id)
         raw_name = doc.file_name or f"{doc.file_unique_id}.bin"
@@ -505,10 +481,9 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         dest = workspace.UPLOADS_DIR / safe_name
         await file.download_to_drive(str(dest))
         mime = doc.mime_type or "application/octet-stream"
-        agent_msg = f"[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
+        agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        await _react_done(update.message, reply)
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling document: %s", e)
@@ -520,16 +495,14 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle photos: save to uploads/, pass path to agent for native vision."""
     chat_id = str(update.effective_chat.id)
     caption = update.message.caption or ""
-    await _react(update.message)
     try:
         photo = update.message.photo[-1]  # highest resolution
         file = await context.bot.get_file(photo.file_id)
         dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
         await file.download_to_drive(str(dest))
-        agent_msg = f"[User sent a photo. Saved to: {dest}]\n\n{caption}"
+        agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent a photo. Saved to: {dest}]\n\n{caption}"
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        await _react_done(update.message, reply)
         await _reply_chunked(update.message, reply)
     except Exception as e:
         logger.exception("Error handling photo: %s", e)

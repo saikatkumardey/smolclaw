@@ -37,7 +37,7 @@ Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in 
 
 **Built-in** (5): `Bash`, `Read`, `Write`, `WebSearch`, `WebFetch`
 
-**SDK tools** (`tools_sdk.py`): `telegram_send`, `telegram_send_file`, `telegram_send_voice`, `save_handover`, `self_restart`, `self_update`, `update_config`, `read_skill`, `search_sessions`, `browse`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_eval`
+**SDK tools** (`tools_sdk.py`): `telegram_send`, `telegram_send_file`, `telegram_send_voice`, `telegram_react`, `save_handover`, `self_restart`, `self_update`, `update_config`, `read_skill`, `search_sessions`, `browse`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_eval`
 
 **Dynamic tools** (`~/.smolclaw/tools/*.py`): Must export `SCHEMA` (OpenAI function schema dict) and `execute()`. All params arrive as strings — always coerce defensively.
 

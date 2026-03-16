@@ -10,7 +10,7 @@ from pathlib import Path
 
 from claude_agent_sdk import tool
 
-from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _text_to_voice
+from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _text_to_voice, _set_reaction
 from . import workspace
 from .auth import is_allowed, default_chat_id
 
@@ -309,9 +309,29 @@ async def telegram_send_voice(args: dict) -> dict:
         Path(ogg_path).unlink(missing_ok=True)
 
 
+@tool(
+    "telegram_react",
+    "React to a user's Telegram message with an emoji. Use this to acknowledge messages, "
+    "express understanding, or give feedback. Pick the emoji that fits the situation — "
+    "don't always use the same one. The message_id is provided in the user message context.",
+    {"chat_id": str, "message_id": str, "emoji": str},
+)
+async def telegram_react(args: dict) -> dict:
+    chat_id = str(args["chat_id"])
+    if not is_allowed(chat_id):
+        return _text(f"Error: chat_id {chat_id!r} is not in ALLOWED_USER_IDS.")
+    try:
+        message_id = int(args["message_id"])
+    except (ValueError, TypeError):
+        return _text(f"Error: invalid message_id {args.get('message_id')!r}")
+    emoji = str(args.get("emoji", "\U0001f44d") or "\U0001f44d")
+    result = await asyncio.to_thread(_set_reaction, chat_id, message_id, emoji)
+    return _text(result)
+
+
 CUSTOM_TOOLS = [
     telegram_send, telegram_send_file, save_handover, self_restart, self_update,
     update_config, read_skill_tool, search_sessions,
     browse, browser_click, browser_type, browser_screenshot, browser_eval,
-    telegram_send_voice,
+    telegram_send_voice, telegram_react,
 ]
