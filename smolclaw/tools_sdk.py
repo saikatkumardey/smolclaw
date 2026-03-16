@@ -13,26 +13,29 @@ from claude_agent_sdk import tool
 from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _text_to_voice, _set_reaction
 from . import workspace
 from .auth import is_allowed, default_chat_id
+from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
 
 _ALLOWED_SOURCE_PREFIX = "git+https://github.com/saikatkumardey/smolclaw"
 
 
-from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
+def _text(t: str) -> dict:
+    """Standard tool response wrapper."""
+    return {"content": [{"type": "text", "text": t}]}
 
 
 @tool("telegram_send", "Send a Telegram message to a chat_id. For cron delivery.", {"chat_id": str, "message": str})
 async def telegram_send(args: dict) -> dict:
     if not is_allowed(args["chat_id"]):
-        return {"content": [{"type": "text", "text": f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS."}]}
+        return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
     text = await asyncio.to_thread(_send_telegram, args["chat_id"], args["message"])
-    return {"content": [{"type": "text", "text": text}]}
+    return _text(text)
 
 
 @tool("save_handover", "Save a handover note so state survives restart or update. Call before self_restart or self_update.", {"summary": str})
 async def save_handover(args: dict) -> dict:
     from .handover import save
     save(args["summary"])
-    return {"content": [{"type": "text", "text": "Handover saved."}]}
+    return _text("Handover saved.")
 
 
 @tool("self_restart", "Restart the smolclaw process in-place. Always call save_handover first.", {})
@@ -41,7 +44,7 @@ async def self_restart(args: dict) -> dict:
     if chat_id := default_chat_id():
         await asyncio.to_thread(_send_telegram, chat_id, "Restarting…")
     os.kill(os.getpid(), signal.SIGTERM)
-    return {"content": [{"type": "text", "text": "unreachable"}]}
+    return _text("unreachable")
 
 
 @tool("self_update", "Check for updates and install if a newer version is available. Always call save_handover first.", {})
@@ -85,12 +88,12 @@ async def self_update(args: dict) -> dict:
 @tool("telegram_send_file", "Send a local file (markdown, CSV, script, image, etc.) to a Telegram chat_id.", {"chat_id": str, "file_path": str})
 async def telegram_send_file(args: dict) -> dict:
     if not is_allowed(args["chat_id"]):
-        return {"content": [{"type": "text", "text": f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS."}]}
+        return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
     resolved = Path(args["file_path"]).resolve()
     if not str(resolved).startswith(str(workspace.HOME.resolve())):
-        return {"content": [{"type": "text", "text": f"Error: file path {args['file_path']!r} is outside the workspace."}]}
+        return _text(f"Error: file path {args['file_path']!r} is outside the workspace.")
     text = await asyncio.to_thread(_send_telegram_file, args["chat_id"], args["file_path"])
-    return {"content": [{"type": "text", "text": text}]}
+    return _text(text)
 
 
 @tool(
@@ -105,7 +108,7 @@ async def update_config(args: dict) -> dict:
     mutable = set(Config.DEFAULTS.keys()) - _AGENT_EXCLUDED
     key = args["key"]
     if key not in mutable:
-        return {"content": [{"type": "text", "text": f"Error: Cannot set '{key}' via this tool. Use /models for model changes."}]}
+        return _text(f"Error: Cannot set '{key}' via this tool. Use /models for model changes.")
     cfg = Config.load()
     # Coerce to the expected type from DEFAULTS
     expected_type = type(Config.DEFAULTS[key])
@@ -113,8 +116,8 @@ async def update_config(args: dict) -> dict:
         value = expected_type(args["value"])
         cfg.set(key, value)
     except (KeyError, TypeError, ValueError) as e:
-        return {"content": [{"type": "text", "text": f"Error: {e}"}]}
-    return {"content": [{"type": "text", "text": f"Set {key} = {value}"}]}
+        return _text(f"Error: {e}")
+    return _text(f"Set {key} = {value}")
 
 
 @tool("read_skill", "Read the instructions for a skill by name.", {"name": str})
@@ -122,8 +125,8 @@ async def read_skill_tool(args: dict) -> dict:
     from .skills import read_skill
     content = read_skill(args["name"], workspace.SKILLS_DIR)
     if content is None:
-        return {"content": [{"type": "text", "text": f"Skill {args['name']!r} not found."}]}
-    return {"content": [{"type": "text", "text": content}]}
+        return _text(f"Skill {args['name']!r} not found.")
+    return _text(content)
 
 
 @tool(
@@ -139,7 +142,7 @@ async def search_sessions(args: dict) -> dict:
 
     sessions_dir = workspace.HOME / "sessions"
     if not sessions_dir.exists():
-        return {"content": [{"type": "text", "text": "No session logs found."}]}
+        return _text("No session logs found.")
 
     # Determine files to search
     if date_filter:
@@ -156,7 +159,7 @@ async def search_sessions(args: dict) -> dict:
                 capture_output=True, text=True, timeout=30,
             )
             if qmd_result.returncode == 0 and qmd_result.stdout.strip():
-                return {"content": [{"type": "text", "text": f"[qmd results]\n{qmd_result.stdout.strip()}"}]}
+                return _text(f"[qmd results]\n{qmd_result.stdout.strip()}")
         except Exception:
             pass  # fall through to grep
 
@@ -191,12 +194,8 @@ async def search_sessions(args: dict) -> dict:
             break
 
     if not results:
-        return {"content": [{"type": "text", "text": f"No matches for '{query_str}' in recent session logs."}]}
-    return {"content": [{"type": "text", "text": "\n\n".join(results)}]}
-
-
-def _text(t: str) -> dict:
-    return {"content": [{"type": "text", "text": t}]}
+        return _text(f"No matches for '{query_str}' in recent session logs.")
+    return _text("\n\n".join(results))
 
 
 @tool(

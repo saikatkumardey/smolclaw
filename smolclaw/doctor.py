@@ -16,13 +16,9 @@ from dotenv import dotenv_values
 from rich.console import Console
 
 from . import workspace
+from .agent import AVAILABLE_MODELS
 
-# Duplicate to avoid importing agent.py (pulls in claude_agent_sdk)
-_KNOWN_MODELS = {
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-}
+_KNOWN_MODELS = {mid for mid, _ in AVAILABLE_MODELS}
 
 _REQUIRED_SUBDIRS = ("skills", "tools", "uploads", "sessions")
 _CORE_FILES = ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml")

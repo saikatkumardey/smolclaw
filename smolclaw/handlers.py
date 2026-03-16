@@ -16,9 +16,11 @@ from .tool_loader import load_custom_tools
 from .tools import MAX_TG_MSG
 from .tools_sdk import CUSTOM_TOOLS
 from .session_state import SessionState
+from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
 from .agent import (
     AVAILABLE_MODELS,
     AVAILABLE_EFFORTS,
+    _CONTEXT_WINDOW_TOKENS,
     get_current_model,
     get_current_effort,
     get_last_result,
@@ -51,9 +53,6 @@ def _classify_error(e: Exception) -> str:
     if isinstance(e, ConnectionError):
         return "Connection error. Check your network and try again."
     return "Something went wrong. Check the logs."
-
-
-from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
 
 
 class _TypingLoop:
@@ -224,7 +223,6 @@ async def on_crons(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(f"{jid} ({cron}): {prompt}")
     await update.message.reply_text("Scheduled jobs:\n" + "\n".join(lines))
 
-CONTEXT_WINDOW_TOKENS = 200_000
 CONTEXT_WARN_THRESHOLD = 0.80
 
 
@@ -235,7 +233,7 @@ def _context_fill(chat_id: str) -> tuple[int, float]:
         return 0, 0.0
     usage = result.usage or {}
     used = usage.get("cache_read_input_tokens", 0) + usage.get("input_tokens", 0)
-    return used, used / CONTEXT_WINDOW_TOKENS
+    return used, used / _CONTEXT_WINDOW_TOKENS
 
 
 @require_allowed
@@ -253,7 +251,7 @@ async def on_context(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         f"Context window: {pct:.1f}%\n"
         f"[{bar}]\n"
-        f"{used:,} / {CONTEXT_WINDOW_TOKENS:,} tokens\n"
+        f"{used:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens\n"
         f"Status: {status}"
     )
     await update.message.reply_text(text)
@@ -285,25 +283,39 @@ async def on_models(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_selection_callback(
+    update: Update,
+    prefix: str,
+    choices: list[tuple[str, str]],
+    apply_fn,
+    success_msg: str,
+) -> None:
+    """Shared logic for model/effort inline keyboard callbacks."""
     from .auth import is_allowed
-    query = update.callback_query
-    await query.answer()
-    if not (query.data or "").startswith("model:"):
+    cb = update.callback_query
+    await cb.answer()
+    if not (cb.data or "").startswith(prefix):
         return
     if not is_allowed(update.effective_chat.id):
-        await query.edit_message_text("Not authorised.")
+        await cb.edit_message_text("Not authorised.")
         return
-    model_id = query.data[len("model:"):]
-    valid = {mid for mid, _ in AVAILABLE_MODELS}
-    if model_id not in valid:
-        await query.edit_message_text("Unknown model.")
+    selected = cb.data[len(prefix):]
+    valid = {cid for cid, _ in choices}
+    if selected not in valid:
+        await cb.edit_message_text(f"Unknown {prefix.rstrip(':')}.")
         return
-    await set_model(model_id)
-    label = next(lbl for mid, lbl in AVAILABLE_MODELS if mid == model_id)
-    await query.edit_message_text(
-        f"✓ Switched to *{label}*\n`{model_id}`\n\nAll sessions reset — next message uses the new model.",
+    await apply_fn(selected)
+    label = next(lbl for cid, lbl in choices if cid == selected)
+    await cb.edit_message_text(
+        success_msg.format(label=label, id=selected),
         parse_mode="Markdown",
+    )
+
+
+async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    await _handle_selection_callback(
+        update, "model:", AVAILABLE_MODELS, set_model,
+        "✓ Switched to *{label}*\n`{id}`\n\nAll sessions reset — next message uses the new model.",
     )
 
 
@@ -329,24 +341,9 @@ async def on_efforts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    from .auth import is_allowed
-    query = update.callback_query
-    await query.answer()
-    if not (query.data or "").startswith("effort:"):
-        return
-    if not is_allowed(update.effective_chat.id):
-        await query.edit_message_text("Not authorised.")
-        return
-    effort_id = query.data[len("effort:"):]
-    valid = {eid for eid, _ in AVAILABLE_EFFORTS}
-    if effort_id not in valid:
-        await query.edit_message_text("Unknown effort level.")
-        return
-    await set_effort(effort_id)
-    label = next(lbl for eid, lbl in AVAILABLE_EFFORTS if eid == effort_id)
-    await query.edit_message_text(
-        f"✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
-        parse_mode="Markdown",
+    await _handle_selection_callback(
+        update, "effort:", AVAILABLE_EFFORTS, set_effort,
+        "✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
     )
 
 
@@ -460,7 +457,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         used, fill = _context_fill(chat_id)
         if fill >= CONTEXT_WARN_THRESHOLD:
             pct = fill * 100
-            warn = f"Context at {pct:.0f}% ({used:,} / {CONTEXT_WINDOW_TOKENS:,} tokens). Consider /reset soon."
+            warn = f"Context at {pct:.0f}% ({used:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens). Consider /reset soon."
             await msg.reply_text(warn)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
@@ -505,26 +502,32 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logger.exception("Error handling reaction: %s", e)
 
 
+async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, agent_msg: str) -> None:
+    """Shared handler for file/photo uploads: run agent and reply."""
+    chat_id = str(update.effective_chat.id)
+    try:
+        async with _TypingLoop(context.bot, chat_id):
+            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
+        await _reply_chunked(update.message, reply)
+    except Exception as e:
+        logger.exception("Error handling upload: %s", e)
+        await update.message.reply_text(_classify_error(e))
+
+
 @require_allowed
 async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle documents: download to uploads/, pass path to agent."""
     chat_id = str(update.effective_chat.id)
     doc = update.message.document
     caption = update.message.caption or ""
-    try:
-        file = await context.bot.get_file(doc.file_id)
-        raw_name = doc.file_name or f"{doc.file_unique_id}.bin"
-        safe_name = Path(raw_name).name
-        dest = workspace.UPLOADS_DIR / safe_name
-        await file.download_to_drive(str(dest))
-        mime = doc.mime_type or "application/octet-stream"
-        agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
-        async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        await _reply_chunked(update.message, reply)
-    except Exception as e:
-        logger.exception("Error handling document: %s", e)
-        await update.message.reply_text(_classify_error(e))
+    file = await context.bot.get_file(doc.file_id)
+    raw_name = doc.file_name or f"{doc.file_unique_id}.bin"
+    safe_name = Path(raw_name).name
+    dest = workspace.UPLOADS_DIR / safe_name
+    await file.download_to_drive(str(dest))
+    mime = doc.mime_type or "application/octet-stream"
+    agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
+    await _handle_upload(update, context, agent_msg)
 
 
 @require_allowed
@@ -532,15 +535,9 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle photos: save to uploads/, pass path to agent for native vision."""
     chat_id = str(update.effective_chat.id)
     caption = update.message.caption or ""
-    try:
-        photo = update.message.photo[-1]  # highest resolution
-        file = await context.bot.get_file(photo.file_id)
-        dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
-        await file.download_to_drive(str(dest))
-        agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent a photo. Saved to: {dest}]\n\n{caption}"
-        async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        await _reply_chunked(update.message, reply)
-    except Exception as e:
-        logger.exception("Error handling photo: %s", e)
-        await update.message.reply_text(_classify_error(e))
+    photo = update.message.photo[-1]  # highest resolution
+    file = await context.bot.get_file(photo.file_id)
+    dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
+    await file.download_to_drive(str(dest))
+    agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent a photo. Saved to: {dest}]\n\n{caption}"
+    await _handle_upload(update, context, agent_msg)
