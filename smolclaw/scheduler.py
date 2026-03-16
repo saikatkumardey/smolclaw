@@ -20,6 +20,9 @@ from loguru import logger
 HEARTBEAT_OK = "HEARTBEAT_OK"
 
 
+_CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
+
+
 def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False) -> None:
     from .agent import run
     logger.info("Cron: {}", job_id)
@@ -29,16 +32,17 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
 
     def _thread_target() -> None:
         try:
-            # NOTE: spawn_task background tasks are not supported in cron context.
-            # asyncio.run() creates a fresh event loop that is destroyed when run() returns,
-            # cancelling any fire-and-forget tasks created during execution.
             result_holder.append(asyncio.run(run(chat_id=f"cron:{job_id}", user_message=prompt)))
         except Exception as e:
             exc_holder.append(e)
 
     t = threading.Thread(target=_thread_target, daemon=True)
     t.start()
-    t.join()  # scheduler thread is freed immediately; job runs in its own thread
+    t.join(timeout=_CRON_TIMEOUT_SECONDS)
+
+    if t.is_alive():
+        logger.error("Cron {} timed out after {}s — thread abandoned (daemon, will die on exit)", job_id, _CRON_TIMEOUT_SECONDS)
+        return
 
     if exc_holder:
         logger.error("Cron {} failed: {}", job_id, exc_holder[0])
