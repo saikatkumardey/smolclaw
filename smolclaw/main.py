@@ -265,7 +265,7 @@ def start(
     # Build and run the bot
     # ---------------------------------------------------------------------------
     try:
-        bot = ApplicationBuilder().token(token).build()
+        bot = ApplicationBuilder().token(token).concurrent_updates(True).build()
         bot.add_handler(CommandHandler("start", h.on_start))
         bot.add_handler(CommandHandler("help", h.on_help))
         bot.add_handler(CommandHandler("status", h.on_status))
