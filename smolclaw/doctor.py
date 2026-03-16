@@ -315,27 +315,38 @@ def _check_runtime() -> list[CheckResult]:
                         "Fix the error or remove the file",
                     ))
 
-    # Playwright browser
+    # Browser backend: prefer Lightpanda, fall back to Chromium
+    lp_bin = shutil.which("lightpanda")
+    if lp_bin:
+        results.append(CheckResult(Status.OK, "Lightpanda found (preferred browser backend)"))
+    else:
+        results.append(CheckResult(
+            Status.OK,
+            "Lightpanda not found — will use Chromium",
+            "Optional: install Lightpanda for faster, lighter browsing: https://github.com/lightpanda-io/browser",
+        ))
+
     pw_check = shutil.which("playwright")
     if pw_check:
         pw_result = subprocess.run(
             ["playwright", "install", "--dry-run", "chromium"],
             capture_output=True, text=True, timeout=10,
         )
-        # dry-run exits 0 if already installed
         if pw_result.returncode == 0:
-            results.append(CheckResult(Status.OK, "Playwright Chromium installed"))
-        else:
+            results.append(CheckResult(Status.OK, "Playwright Chromium installed (fallback)"))
+        elif not lp_bin:
             results.append(CheckResult(
                 Status.WARN,
                 "Playwright Chromium not installed — browser tools won't work",
                 "Run: playwright install chromium --with-deps",
             ))
-    else:
+        else:
+            results.append(CheckResult(Status.OK, "Playwright Chromium not installed (Lightpanda available)"))
+    elif not lp_bin:
         results.append(CheckResult(
             Status.WARN,
-            "Playwright CLI not found — browser tools won't work",
-            "Run: playwright install chromium --with-deps",
+            "No browser backend available — browser tools won't work",
+            "Install Lightpanda or run: playwright install chromium --with-deps",
         ))
 
     # TTS dependencies (edge-tts + ffmpeg)

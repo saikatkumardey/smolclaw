@@ -83,6 +83,7 @@ def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural")
     import subprocess
     import tempfile
 
+    mp3_path = None
     try:
         # edge-tts outputs MP3; convert to OGG/Opus for Telegram voice messages
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
@@ -101,15 +102,15 @@ def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural")
             ["ffmpeg", "-y", "-i", mp3_path, "-c:a", "libopus", "-b:a", "48k", output_path],
             capture_output=True, text=True, timeout=30,
         )
-        # Clean up MP3
-        Path(mp3_path).unlink(missing_ok=True)
-
         if result.returncode != 0:
             return f"FFmpeg conversion failed: {result.stderr[:200]}"
 
         return output_path
     except Exception as e:
         return f"Error: {e}"
+    finally:
+        if mp3_path:
+            Path(mp3_path).unlink(missing_ok=True)
 
 
 def _set_reaction(chat_id: str, message_id: int, emoji: str) -> str:

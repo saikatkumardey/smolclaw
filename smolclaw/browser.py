@@ -1,7 +1,13 @@
-"""Headless browser manager using Playwright. Lazy singleton, one context per chat_id."""
+"""Headless browser manager using Playwright. Lazy singleton, one context per chat_id.
+
+Prefers Lightpanda (lightweight, designed for AI) over Chromium when available.
+Lightpanda is connected via CDP; Chromium is launched directly by Playwright.
+"""
 from __future__ import annotations
 
 import asyncio
+import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 
@@ -14,6 +20,10 @@ SCREENSHOTS_DIR = workspace.HOME / "screenshots"
 # Close idle browser contexts after this many seconds
 _IDLE_TIMEOUT = 600  # 10 minutes
 
+# Lightpanda CDP defaults
+_LP_HOST = "127.0.0.1"
+_LP_PORT = 9222
+
 
 class BrowserManager:
     _instance: BrowserManager | None = None
@@ -21,6 +31,8 @@ class BrowserManager:
     def __init__(self) -> None:
         self._playwright = None
         self._browser = None
+        self._lp_process: subprocess.Popen | None = None  # Lightpanda subprocess
+        self._using_lightpanda = False
         self._contexts: dict[str, object] = {}  # chat_id -> BrowserContext
         self._pages: dict[str, object] = {}  # chat_id -> Page
         self._last_used: dict[str, float] = {}  # chat_id -> timestamp
@@ -32,10 +44,62 @@ class BrowserManager:
             cls._instance = cls()
         return cls._instance
 
+    async def _start_lightpanda(self) -> bool:
+        """Try to start Lightpanda and connect via CDP. Returns True on success."""
+        lp_bin = shutil.which("lightpanda")
+        if not lp_bin:
+            return False
+
+        try:
+            self._lp_process = subprocess.Popen(
+                [lp_bin, "serve", "--host", _LP_HOST, "--port", str(_LP_PORT)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            # Give it a moment to start the CDP server
+            await asyncio.sleep(0.5)
+
+            # Check it's still running
+            if self._lp_process.poll() is not None:
+                stderr = self._lp_process.stderr.read().decode()[:200] if self._lp_process.stderr else ""
+                logger.warning("Lightpanda exited immediately: {}", stderr)
+                self._lp_process = None
+                return False
+
+            from playwright.async_api import async_playwright
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.connect_over_cdp(
+                f"http://{_LP_HOST}:{_LP_PORT}",
+            )
+            self._using_lightpanda = True
+            logger.info("Browser connected (Lightpanda via CDP)")
+            return True
+        except Exception as e:
+            logger.warning("Lightpanda connection failed, falling back to Chromium: {}", e)
+            # Clean up partial state
+            if self._lp_process and self._lp_process.poll() is None:
+                self._lp_process.terminate()
+            self._lp_process = None
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass
+                self._playwright = None
+            self._browser = None
+            return False
+
     async def _ensure_browser(self):
-        """Lazily launch the Playwright browser."""
+        """Lazily launch the browser. Tries Lightpanda first, falls back to Chromium."""
         if self._browser is not None:
             return
+
+        # Try Lightpanda first
+        if await self._start_lightpanda():
+            SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+            return
+
+        # Fall back to Chromium
         from playwright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
@@ -43,8 +107,16 @@ class BrowserManager:
             headless=True,
             args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
         )
+        self._using_lightpanda = False
         SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
         logger.info("Browser launched (headless Chromium)")
+
+    @property
+    def backend(self) -> str:
+        """Return which browser backend is in use."""
+        if self._browser is None:
+            return "none"
+        return "lightpanda" if self._using_lightpanda else "chromium"
 
     async def get_page(self, chat_id: str):
         """Get or create a Page for this chat_id."""
@@ -55,13 +127,17 @@ class BrowserManager:
                 self._last_used[chat_id] = time.monotonic()
                 return self._pages[chat_id]
 
-            context = await self._browser.new_context(
-                viewport={"width": 1280, "height": 720},
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-            )
+            # Lightpanda doesn't support all Chromium context options (e.g. user_agent)
+            if self._using_lightpanda:
+                context = await self._browser.new_context()
+            else:
+                context = await self._browser.new_context(
+                    viewport={"width": 1280, "height": 720},
+                    user_agent=(
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                )
             page = await context.new_page()
             self._contexts[chat_id] = context
             self._pages[chat_id] = page
@@ -83,7 +159,7 @@ class BrowserManager:
                 pass
 
     async def close_all(self) -> None:
-        """Close all contexts and the browser."""
+        """Close all contexts, the browser, and Lightpanda subprocess if running."""
         async with self._lock:
             for chat_id in list(self._contexts.keys()):
                 await self._close_session_unlocked(chat_id)
@@ -99,6 +175,9 @@ class BrowserManager:
                 except Exception:
                     pass
                 self._playwright = None
+            if self._lp_process and self._lp_process.poll() is None:
+                self._lp_process.terminate()
+                self._lp_process = None
 
     async def cleanup_idle(self) -> None:
         """Close contexts that have been idle for too long."""

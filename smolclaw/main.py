@@ -323,14 +323,10 @@ def start(
             from .auth import default_chat_id
             default_chat = default_chat_id()
             if default_chat:
-                from importlib.metadata import version as pkg_version
-
                 from .handover import exists as handover_exists
                 from .handover import load as handover_load
-                try:
-                    ver = pkg_version("smolclaw")
-                except Exception:
-                    ver = "?"
+                from .version import local_version
+                ver = local_version()
                 parts = [f"Back online. v{ver}"]
                 if handover_exists():
                     handover = handover_load()

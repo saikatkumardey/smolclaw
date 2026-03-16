@@ -104,8 +104,8 @@ async def reset_session(chat_id: str) -> None:
     try:
         from .browser import BrowserManager
         await BrowserManager.get().close_session(chat_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to close browser session for {}: {}", chat_id, e)
 
 
 async def interrupt_session(chat_id: str) -> bool:
@@ -484,14 +484,16 @@ async def run(chat_id: str, user_message: str) -> str:
             reply = f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
         else:
             reply = "(no response)"
-        # Clear handover only after successful processing
-        session = _sessions[chat_id]
-        if session.handover_pending:
-            handover_clear()
-            session.handover_pending = False
     except Exception as e:
         logger.exception("Agent error: {}", e)
         reply = "Something went wrong. Please try again."
+    finally:
+        # Always clear handover after first turn — even on error, the handover
+        # has been injected into the system prompt and shouldn't persist.
+        session = _sessions.get(chat_id)
+        if session and session.handover_pending:
+            handover_clear()
+            session.handover_pending = False
 
     session_log(chat_id, "assistant", reply)
 

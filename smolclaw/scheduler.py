@@ -41,10 +41,14 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
 
     if t.is_alive():
         logger.error("Cron {} timed out after {}s — thread abandoned (daemon, will die on exit)", job_id, _CRON_TIMEOUT_SECONDS)
+        if deliver_to:
+            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' timed out after {_CRON_TIMEOUT_SECONDS}s.")
         return
 
     if exc_holder:
         logger.error("Cron {} failed: {}", job_id, exc_holder[0])
+        if deliver_to:
+            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc_holder[0]}")
         return
 
     result = result_holder[0] if result_holder else "(no response)"

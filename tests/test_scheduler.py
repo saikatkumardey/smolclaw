@@ -13,7 +13,7 @@ class TestRunJobTimeout:
     @patch.object(_sched, "_telegram")
     @patch("smolclaw.agent.run")
     def test_timeout_abandons_hung_thread(self, mock_run, mock_tg):
-        """A cron job that exceeds the timeout is abandoned without delivering."""
+        """A cron job that exceeds the timeout notifies the user."""
         hang_event = threading.Event()
 
         async def _hang(*a, **kw):
@@ -25,7 +25,9 @@ class TestRunJobTimeout:
         with patch.object(_sched, "_CRON_TIMEOUT_SECONDS", 0.5):
             _sched._run_job("test-hang", "prompt", deliver_to="123")
 
-        mock_tg.send.assert_not_called()
+        # Timeout errors are now reported to the user
+        mock_tg.send.assert_called_once()
+        assert "timed out" in mock_tg.send.call_args.kwargs["message"]
         hang_event.set()  # release the thread
 
     @patch.object(_sched, "_telegram")
@@ -54,12 +56,14 @@ class TestRunJobTimeout:
 
     @patch.object(_sched, "_telegram")
     @patch("smolclaw.agent.run")
-    def test_exception_does_not_deliver(self, mock_run, mock_tg):
-        """A job that raises an exception should not deliver."""
+    def test_exception_notifies_user(self, mock_run, mock_tg):
+        """A job that raises an exception should notify the user."""
 
         async def _boom(*a, **kw):
             raise RuntimeError("boom")
 
         mock_run.side_effect = _boom
         _sched._run_job("test-err", "prompt", deliver_to="123")
-        mock_tg.send.assert_not_called()
+        mock_tg.send.assert_called_once()
+        assert "failed" in mock_tg.send.call_args.kwargs["message"]
+        assert "boom" in mock_tg.send.call_args.kwargs["message"]

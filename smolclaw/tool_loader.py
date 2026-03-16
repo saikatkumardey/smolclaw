@@ -90,7 +90,19 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
                 logger.warning("Skipping {} — missing SCHEMA or execute()", path.name)
                 continue
 
+            if not callable(mod.execute):
+                logger.warning("Skipping {} — execute is not callable", path.name)
+                continue
+
+            if not isinstance(mod.SCHEMA, dict) or "function" not in mod.SCHEMA:
+                logger.warning("Skipping {} — SCHEMA must be a dict with a 'function' key", path.name)
+                continue
+
             fn_def = mod.SCHEMA["function"]
+
+            if not fn_def.get("name"):
+                logger.warning("Skipping {} — SCHEMA.function.name is required", path.name)
+                continue
             tool_name = fn_def["name"]
             tool_desc = fn_def.get("description", "")
             params = fn_def.get("parameters", {})

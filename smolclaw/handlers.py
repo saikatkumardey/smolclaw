@@ -161,10 +161,13 @@ async def on_status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     today_line = (
         f"\nToday: {usage_today['input_tokens']}in/{usage_today['output_tokens']}out | {usage_today['turns']} turns"
     )
+    from .browser import BrowserManager
+    browser_backend = BrowserManager.get().backend
     text = (
         f"Model: {current_model}\n"
         f"Effort: {current_effort}\n"
         f"Workspace: {workspace.HOME}\n"
+        f"Browser: {browser_backend}\n"
         f"Built-in tools: {builtin_count}\n"
         f"Custom SDK tools: {custom_sdk_count}\n"
         f"Dynamic tools: {len(dynamic_tools)} ({dynamic_names})\n"

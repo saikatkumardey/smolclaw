@@ -128,8 +128,8 @@ async def test_concurrent_run_same_chat_no_duplicate_sessions(tmp_path, monkeypa
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_handover_persists_on_agent_error(tmp_path, monkeypatch):
-    """If the agent crashes, the handover file should NOT be deleted."""
+async def test_handover_cleared_even_on_agent_error(tmp_path, monkeypatch):
+    """Handover is always cleared after first turn — even on error, it's already in the system prompt."""
     _patch_workspace(tmp_path, monkeypatch)
     monkeypatch.setattr("smolclaw.workspace.HANDOVER", tmp_path / "handover.md")
     (tmp_path / "handover.md").write_text("# Important handover")
@@ -145,7 +145,7 @@ async def test_handover_persists_on_agent_error(tmp_path, monkeypatch):
         try:
             result = await ag.run(chat_id="handover-err", user_message="hi")
             assert "wrong" in result.lower()  # sanitized error
-            assert (tmp_path / "handover.md").exists()  # NOT deleted
+            assert not (tmp_path / "handover.md").exists()  # cleared in finally block
         finally:
             ag._sessions.pop("handover-err", None)
             ag._session_locks.pop("handover-err", None)
