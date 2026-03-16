@@ -25,6 +25,13 @@ You are running a background reflection cycle. No user message triggered this �
    - Patterns worth noting (same question asked twice, recurring frustrations)
    Add new threads via update_subconscious(action="add")
 
-3. **Act or stay silent**: If you have something worth saying, use telegram_send. If not, stay quiet. Quality over frequency — don't message just because you can.
+3. **Self-improvement check**: Run `python3 /home/claude-user/.smolclaw/skills/self-review/scripts/self_review.py` and scan the output. If there are unchecked action items:
+   - Tool errors with >2 occurrences: disable the tool and note in improvements.md
+   - Slow response patterns: add a subconscious thread to build a dedicated tool
+   - No-response events: check if they're still happening post-fix
+   - Stale memory: run `--memory-audit` and clean up if utilization >90%
+   Only act on items you can fix without user involvement. Skip items that need approval.
 
-4. Reply SUBCONSCIOUS_OK when done.
+4. **Act or stay silent**: If you have something worth saying, use telegram_send. If not, stay quiet. Quality over frequency — don't message just because you can.
+
+5. Reply SUBCONSCIOUS_OK when done.
