@@ -61,3 +61,4 @@ Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in 
 - Run full test suite before pushing — `uv run pytest`.
 - Keep `CUSTOM_TOOLS` list at the bottom of `tools_sdk.py` in sync when adding tools.
 - Browser tools use lazy imports (`from .browser import BrowserManager`) to avoid importing Playwright at module load.
+- **Be lean with context.** Read files with `offset`/`limit` when you only need a section. Batch related shell commands (commit + push + upgrade + restart) into one chained call. Don't re-read files you just wrote. Use parallel tool calls. Skip exploratory reads when you already know the structure.
