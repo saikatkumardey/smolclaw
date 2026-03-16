@@ -433,7 +433,8 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 capture_output=True, text=True, timeout=30,
             )
         reply = result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr[:300]}"
-        await _reply_chunked(msg, reply or "(no response)")
+        btw_reply = f"_/btw_\n{reply}" if reply else "(no response)"
+        await _reply_chunked(msg, btw_reply)
     except Exception as e:
         logger.exception("Error handling /btw: %s", e)
         await msg.reply_text(_classify_error(e))
