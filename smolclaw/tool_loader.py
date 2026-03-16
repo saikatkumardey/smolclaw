@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from claude_agent_sdk import SdkMcpTool, tool
@@ -16,6 +17,40 @@ _tool_cache: dict[str, tuple[float, SdkMcpTool]] = {}
 
 # Directory-level cache: (dir_mtime, result_list) — skips glob+stat when dir unchanged
 _dir_cache: tuple[float, list[SdkMcpTool]] | None = None
+
+
+def validate_tool_module(path: Path) -> tuple[bool, list[str], ModuleType | None]:
+    """
+    Import and validate a tool module at *path*.
+
+    Returns (ok, errors, module).  When ok is False the errors list
+    explains why and module is None.
+    """
+    errors: list[str] = []
+    try:
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:
+        return False, [f"Import failed: {e}"], None
+
+    if not (hasattr(mod, "SCHEMA") and hasattr(mod, "execute")):
+        errors.append("Missing SCHEMA or execute()")
+
+    if hasattr(mod, "execute") and not callable(mod.execute):
+        errors.append("execute is not callable")
+
+    if hasattr(mod, "SCHEMA"):
+        schema = mod.SCHEMA
+        if not isinstance(schema, dict) or "function" not in schema:
+            errors.append("SCHEMA must be a dict with a 'function' key")
+        elif not schema["function"].get("name"):
+            errors.append("SCHEMA.function.name is required")
+
+    if errors:
+        return False, errors, None
+
+    return True, [], mod
 
 
 def _make_sdk_tool(name: str, desc: str, properties: dict, required: list, execute_fn) -> SdkMcpTool:
@@ -81,28 +116,15 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
         if path.name not in _known_tool_files:
             logger.warning("New tool file detected: {} — loaded without integrity check", path.name)
             _known_tool_files.add(path.name)
+
+        ok, errors, mod = validate_tool_module(path)
+        if not ok:
+            for err in errors:
+                logger.warning("Skipping {} — {}", path.name, err)
+            continue
+
         try:
-            spec = importlib.util.spec_from_file_location(path.stem, path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-
-            if not (hasattr(mod, "SCHEMA") and hasattr(mod, "execute")):
-                logger.warning("Skipping {} — missing SCHEMA or execute()", path.name)
-                continue
-
-            if not callable(mod.execute):
-                logger.warning("Skipping {} — execute is not callable", path.name)
-                continue
-
-            if not isinstance(mod.SCHEMA, dict) or "function" not in mod.SCHEMA:
-                logger.warning("Skipping {} — SCHEMA must be a dict with a 'function' key", path.name)
-                continue
-
             fn_def = mod.SCHEMA["function"]
-
-            if not fn_def.get("name"):
-                logger.warning("Skipping {} — SCHEMA.function.name is required", path.name)
-                continue
             tool_name = fn_def["name"]
             tool_desc = fn_def.get("description", "")
             params = fn_def.get("parameters", {})

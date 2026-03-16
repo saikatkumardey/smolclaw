@@ -53,3 +53,25 @@ output = result.stdout.strip()
 ```
 
 The `CLAUDECODE=""` is required — without it, `claude` will refuse to run inside an active Claude Code session.
+
+## Safe Deployment Flow
+
+Never write tools directly to `tools/`. Use the staging workflow:
+
+1. **Write** to `tools/.staging/my_tool.py`
+2. **Test** with `test_tool(file_name="my_tool.py")` — validates SCHEMA + execute
+3. **Test with args** via `test_tool(file_name="my_tool.py", test_args='{"city": "London"}')` — actually runs execute()
+4. **Deploy** with `deploy_tool(file_name="my_tool.py")` — moves to `tools/`, live on next message
+
+## Rollback
+
+If a deployed tool causes problems:
+
+- `disable_tool(tool_name="my_tool")` — renames to `my_tool.py.disabled` (loader ignores non-`.py` files)
+- To re-enable: rename the file back to `.py` via Bash
+
+## Common Mistakes
+
+- **String coercion:** All tool parameters arrive as strings. Always `int()`, `json.loads()`, etc. inside `execute()`.
+- **Lazy imports:** Put heavy imports (`requests`, `pandas`) inside `execute()`, not at module top level. Module-level imports run during validation too.
+- **Return type:** `execute()` must return a string. If you return a dict or list, wrap it with `json.dumps()`.

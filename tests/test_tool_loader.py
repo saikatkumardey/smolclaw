@@ -108,3 +108,52 @@ def test_load_custom_tools_nonexistent_dir(tmp_path):
 
     tools = load_custom_tools(tmp_path / "no_such_dir")
     assert tools == []
+
+
+# --- validate_tool_module tests ---
+
+def test_validate_valid_tool(tmp_path):
+    """A valid tool module should pass validation."""
+    from smolclaw.tool_loader import validate_tool_module
+
+    p = tmp_path / "good.py"
+    p.write_text(VALID_TOOL_SRC)
+    ok, errors, mod = validate_tool_module(p)
+    assert ok is True
+    assert errors == []
+    assert mod is not None
+    assert callable(mod.execute)
+
+
+def test_validate_missing_execute(tmp_path):
+    """Module without execute() should fail validation."""
+    from smolclaw.tool_loader import validate_tool_module
+
+    p = tmp_path / "no_exec.py"
+    p.write_text(BROKEN_TOOL_SRC)
+    ok, errors, _mod = validate_tool_module(p)
+    assert ok is False
+    assert any("Missing SCHEMA or execute" in e for e in errors)
+
+
+def test_validate_bad_schema(tmp_path):
+    """Module with SCHEMA missing 'function' key should fail."""
+    from smolclaw.tool_loader import validate_tool_module
+
+    p = tmp_path / "bad_schema.py"
+    p.write_text('SCHEMA = {"type": "function"}\ndef execute(): return "x"\n')
+    ok, errors, _mod = validate_tool_module(p)
+    assert ok is False
+    assert any("function" in e for e in errors)
+
+
+def test_loader_ignores_staging_dir(tmp_path):
+    """Staging subdirectory should not be picked up by load_custom_tools."""
+    from smolclaw.tool_loader import load_custom_tools
+
+    staging = tmp_path / ".staging"
+    staging.mkdir()
+    (staging / "hidden.py").write_text(VALID_TOOL_SRC)
+    # Only .py files directly in tools_dir are loaded
+    tools = load_custom_tools(tmp_path)
+    assert len(tools) == 0

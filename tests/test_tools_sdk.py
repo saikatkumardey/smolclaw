@@ -96,3 +96,175 @@ class TestUpdateConfig:
         text = result["content"][0]["text"]
         assert "max_turns" in text
         assert "20" in text
+
+
+# --- Staging tool constants ---
+
+_VALID_STAGED_TOOL = '''
+SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "echo",
+        "description": "Echo back input.",
+        "parameters": {
+            "type": "object",
+            "properties": {"msg": {"type": "string"}},
+            "required": ["msg"],
+        },
+    },
+}
+
+def execute(msg: str = "") -> str:
+    return f"echo: {msg}"
+'''
+
+_BAD_SCHEMA_TOOL = '''
+SCHEMA = {"type": "function"}
+def execute(): return "x"
+'''
+
+_MISSING_EXECUTE_TOOL = '''
+SCHEMA = {
+    "type": "function",
+    "function": {"name": "bad", "description": "No execute."},
+}
+'''
+
+_RAISING_TOOL = '''
+SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "boom",
+        "description": "Always raises.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+}
+
+def execute() -> str:
+    raise ValueError("kaboom")
+'''
+
+
+def _setup_staging(tmp_path, monkeypatch):
+    """Set up workspace paths with a staging directory."""
+    import smolclaw.workspace as ws
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    staging = tools_dir / ".staging"
+    staging.mkdir()
+    monkeypatch.setattr(ws, "HOME", tmp_path)
+    monkeypatch.setattr(ws, "TOOLS_DIR", tools_dir)
+    monkeypatch.setattr(ws, "TOOLS_STAGING", staging)
+    return tools_dir, staging
+
+
+class TestTestTool:
+    @pytest.mark.asyncio
+    async def test_valid_tool_passes(self, monkeypatch, tmp_path):
+        _tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "echo.py").write_text(_VALID_STAGED_TOOL)
+        from smolclaw.tools_sdk import test_tool
+        result = await _call_tool(test_tool, {"file_name": "echo.py"})
+        assert "PASS" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_missing_execute_fails(self, monkeypatch, tmp_path):
+        _tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "bad.py").write_text(_MISSING_EXECUTE_TOOL)
+        from smolclaw.tools_sdk import test_tool
+        result = await _call_tool(test_tool, {"file_name": "bad.py"})
+        assert "FAIL" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_bad_schema_fails(self, monkeypatch, tmp_path):
+        _tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "bad.py").write_text(_BAD_SCHEMA_TOOL)
+        from smolclaw.tools_sdk import test_tool
+        result = await _call_tool(test_tool, {"file_name": "bad.py"})
+        assert "FAIL" in result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_with_test_args(self, monkeypatch, tmp_path):
+        _tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "echo.py").write_text(_VALID_STAGED_TOOL)
+        from smolclaw.tools_sdk import test_tool
+        result = await _call_tool(test_tool, {"file_name": "echo.py", "test_args": '{"msg": "hi"}'})
+        text = result["content"][0]["text"]
+        assert "PASS" in text
+        assert "echo: hi" in text
+
+    @pytest.mark.asyncio
+    async def test_execute_exception_reported(self, monkeypatch, tmp_path):
+        _tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "boom.py").write_text(_RAISING_TOOL)
+        from smolclaw.tools_sdk import test_tool
+        result = await _call_tool(test_tool, {"file_name": "boom.py", "test_args": "{}"})
+        text = result["content"][0]["text"]
+        assert "PASS" in text  # validation passes
+        assert "kaboom" in text  # but execute() error is reported
+
+    @pytest.mark.asyncio
+    async def test_missing_file(self, monkeypatch, tmp_path):
+        _setup_staging(tmp_path, monkeypatch)
+        from smolclaw.tools_sdk import test_tool
+        result = await _call_tool(test_tool, {"file_name": "nope.py"})
+        assert "FAIL" in result["content"][0]["text"]
+
+
+class TestDeployTool:
+    @pytest.mark.asyncio
+    async def test_moves_file(self, monkeypatch, tmp_path):
+        tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "echo.py").write_text(_VALID_STAGED_TOOL)
+        from smolclaw.tools_sdk import deploy_tool
+        result = await _call_tool(deploy_tool, {"file_name": "echo.py"})
+        text = result["content"][0]["text"]
+        assert "Deployed" in text
+        assert (tools_dir / "echo.py").exists()
+        assert not (staging / "echo.py").exists()
+
+    @pytest.mark.asyncio
+    async def test_refuses_invalid(self, monkeypatch, tmp_path):
+        _tools_dir, staging = _setup_staging(tmp_path, monkeypatch)
+        (staging / "bad.py").write_text(_BAD_SCHEMA_TOOL)
+        from smolclaw.tools_sdk import deploy_tool
+        result = await _call_tool(deploy_tool, {"file_name": "bad.py"})
+        text = result["content"][0]["text"]
+        assert "Refused" in text
+        assert (staging / "bad.py").exists()  # not moved
+
+    @pytest.mark.asyncio
+    async def test_missing_file(self, monkeypatch, tmp_path):
+        _setup_staging(tmp_path, monkeypatch)
+        from smolclaw.tools_sdk import deploy_tool
+        result = await _call_tool(deploy_tool, {"file_name": "nope.py"})
+        assert "not found" in result["content"][0]["text"]
+
+
+class TestDisableTool:
+    @pytest.mark.asyncio
+    async def test_renames_to_disabled(self, monkeypatch, tmp_path):
+        tools_dir, _staging = _setup_staging(tmp_path, monkeypatch)
+        (tools_dir / "echo.py").write_text(_VALID_STAGED_TOOL)
+        from smolclaw.tools_sdk import disable_tool
+        result = await _call_tool(disable_tool, {"tool_name": "echo.py"})
+        text = result["content"][0]["text"]
+        assert "Disabled" in text
+        assert (tools_dir / "echo.py.disabled").exists()
+        assert not (tools_dir / "echo.py").exists()
+
+    @pytest.mark.asyncio
+    async def test_accepts_stem_without_py(self, monkeypatch, tmp_path):
+        tools_dir, _staging = _setup_staging(tmp_path, monkeypatch)
+        (tools_dir / "echo.py").write_text(_VALID_STAGED_TOOL)
+        from smolclaw.tools_sdk import disable_tool
+        result = await _call_tool(disable_tool, {"tool_name": "echo"})
+        assert "Disabled" in result["content"][0]["text"]
+        assert (tools_dir / "echo.py.disabled").exists()
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_file(self, monkeypatch, tmp_path):
+        _setup_staging(tmp_path, monkeypatch)
+        from smolclaw.tools_sdk import disable_tool
+        result = await _call_tool(disable_tool, {"tool_name": "nope"})
+        assert "not found" in result["content"][0]["text"]

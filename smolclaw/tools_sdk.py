@@ -333,9 +333,88 @@ async def telegram_react(args: dict) -> dict:
     return _text(result)
 
 
+@tool(
+    "test_tool",
+    "Validate a staged tool file in tools/.staging/ before deploying. "
+    "Checks SCHEMA structure and callable execute. Optionally runs execute with test_args (JSON string).",
+    {"file_name": str, "test_args": str},
+)
+async def test_tool(args: dict) -> dict:
+    from .tool_loader import validate_tool_module
+
+    file_name = str(args["file_name"])
+    test_args_raw = str(args.get("test_args", "") or "")
+    path = workspace.TOOLS_STAGING / file_name
+
+    if not path.exists():
+        return _text(f"FAIL: {file_name} not found in staging directory.")
+
+    ok, errors, mod = validate_tool_module(path)
+    if not ok:
+        return _text(f"FAIL: {file_name}\n" + "\n".join(f"- {e}" for e in errors))
+
+    report = f"PASS: {file_name} — schema and execute valid."
+
+    if test_args_raw:
+        try:
+            test_args_parsed = json.loads(test_args_raw)
+        except json.JSONDecodeError as e:
+            return _text(f"PASS (validation) but test_args is invalid JSON: {e}")
+        try:
+            result = mod.execute(**test_args_parsed)
+            report += f"\nexecute() returned: {result!r}"
+        except Exception as e:
+            report += f"\nexecute() raised: {type(e).__name__}: {e}"
+
+    return _text(report)
+
+
+@tool(
+    "deploy_tool",
+    "Move a staged tool from tools/.staging/ to tools/ (goes live on next message). "
+    "Re-validates before deploying.",
+    {"file_name": str},
+)
+async def deploy_tool(args: dict) -> dict:
+    from .tool_loader import validate_tool_module
+
+    file_name = str(args["file_name"])
+    src = workspace.TOOLS_STAGING / file_name
+
+    if not src.exists():
+        return _text(f"Error: {file_name} not found in staging directory.")
+
+    ok, errors, _mod = validate_tool_module(src)
+    if not ok:
+        return _text(f"Refused to deploy {file_name} — validation failed:\n" + "\n".join(f"- {e}" for e in errors))
+
+    dest = workspace.TOOLS_DIR / file_name
+    shutil.move(str(src), str(dest))
+    return _text(f"Deployed {file_name} to tools/. It will be live on the next message.")
+
+
+@tool(
+    "disable_tool",
+    "Disable a live tool by renaming foo.py → foo.py.disabled. Reversible.",
+    {"tool_name": str},
+)
+async def disable_tool(args: dict) -> dict:
+    name = str(args["tool_name"])
+    # Accept both "foo" and "foo.py"
+    if not name.endswith(".py"):
+        name = name + ".py"
+    path = workspace.TOOLS_DIR / name
+    if not path.exists():
+        return _text(f"Error: {name} not found in tools directory.")
+    disabled = path.with_suffix(".py.disabled")
+    path.rename(disabled)
+    return _text(f"Disabled {name} → {disabled.name}. Rename back to re-enable.")
+
+
 CUSTOM_TOOLS = [
     telegram_send, telegram_send_file, save_handover, self_restart, self_update,
     update_config, read_skill_tool, search_sessions,
     browse, browser_click, browser_type, browser_screenshot, browser_eval,
     telegram_send_voice, telegram_react,
+    test_tool, deploy_tool, disable_tool,
 ]
