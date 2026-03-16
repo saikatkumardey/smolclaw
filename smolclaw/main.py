@@ -202,6 +202,14 @@ def start(
         typer.echo(f"SmolClaw started (PID {proc.pid}). Run 'smolclaw logs' to view output.")
         return
 
+    # Guard against duplicate foreground processes
+    from .daemon import is_running, write_pid
+    running, pid = is_running()
+    if running and pid != os.getpid():
+        typer.echo(f"Another SmolClaw instance is running (PID {pid}). Exiting.")
+        raise typer.Exit(1)
+    write_pid(os.getpid())
+
     # Do NOT set SIGCHLD to SIG_IGN here. While it auto-reaps zombies, it also
     # discards exit status before asyncio's PidfdChildWatcher can call waitpid(),
     # causing every SDK subprocess to report returncode 255 (ProcessError).
