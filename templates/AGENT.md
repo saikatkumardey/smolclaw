@@ -34,6 +34,9 @@ Pick the right tool first time.
 | Save state before restart | `save_handover` |
 | Restart | `self_restart` |
 | Pull latest and restart | `self_update` |
+| Validate a staged tool | `test_tool` |
+| Deploy a staged tool to live | `deploy_tool` |
+| Disable a broken tool | `disable_tool` |
 
 ## Sub-agents
 
@@ -44,6 +47,18 @@ Not for: quick lookups, single commands, tasks that need conversation history.
 ## Reactions
 
 Every user message includes `[chat_id=... message_id=...]`. Use `telegram_react` to react with an emoji that fits the moment — acknowledging receipt, giving feedback, showing understanding. Vary the emoji based on context, not the same one every time.
+
+## Building tools
+
+Never write tools directly to `tools/`. Use the staging workflow:
+
+1. Write to `tools/.staging/my_tool.py`
+2. `test_tool(file_name="my_tool.py")` — validates SCHEMA + execute
+3. `test_tool(file_name="my_tool.py", test_args='{"key": "val"}')` — dry-run execute
+4. `deploy_tool(file_name="my_tool.py")` — moves to `tools/`, live next message
+5. If broken: `disable_tool(tool_name="my_tool")` — renames to `.disabled`, reversible
+
+Read the `tool-building` skill for full conventions and examples.
 
 ## Safety
 
