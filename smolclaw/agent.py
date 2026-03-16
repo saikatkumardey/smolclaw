@@ -401,8 +401,13 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         # Claude Code supports trailing-* wildcards in allowed_tools.
         allowed.append("mcp__dynamic__*")
 
+    # Use cheaper model for subconscious cycles
+    model = cfg.get("model")
+    if chat_id.startswith("cron:subconscious"):
+        model = cfg.get("subconscious_model") or model
+
     return ClaudeAgentOptions(
-        model=cfg.get("model"),
+        model=model,
         system_prompt=_system_prompt(),
         allowed_tools=allowed,
         mcp_servers=mcp_servers,
@@ -509,6 +514,7 @@ async def run(chat_id: str, user_message: str) -> str:
                     handover_save(handover_text)
                 await reset_session(chat_id)
     except Exception as e:
-        logger.warning("Auto-rotation failed for {}: {}", chat_id, e)
+        logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
+        _sessions.pop(chat_id, None)
 
     return reply

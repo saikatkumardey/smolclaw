@@ -411,10 +411,66 @@ async def disable_tool(args: dict) -> dict:
     return _text(f"Disabled {name} → {disabled.name}. Rename back to re-enable.")
 
 
+@tool(
+    "update_subconscious",
+    "Manage the subconscious reflection log. Actions: 'add' (with thread_data JSON), "
+    "'resolve' (with thread_id), 'list' (returns all open threads).",
+    {"action": str, "thread_id": str, "thread_data": str},
+)
+async def update_subconscious(args: dict) -> dict:
+    from . import subconscious
+
+    action = str(args.get("action", ""))
+    if action == "list":
+        threads = subconscious.load_threads()
+        if not threads:
+            return _text("No open threads.")
+        import yaml
+        return _text(yaml.dump(threads, default_flow_style=False))
+
+    if action == "resolve":
+        thread_id = str(args.get("thread_id", ""))
+        if not thread_id:
+            return _text("Error: thread_id required for resolve action.")
+        removed = subconscious.resolve_thread(thread_id)
+        if removed:
+            return _text(f"Resolved thread: {thread_id}")
+        return _text(f"Thread not found: {thread_id}")
+
+    if action == "add":
+        raw = str(args.get("thread_data", "") or "")
+        if not raw:
+            return _text("Error: thread_data (JSON string) required for add action.")
+        try:
+            thread_data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            return _text(f"Error: invalid JSON in thread_data: {e}")
+        try:
+            tid = subconscious.add_thread(thread_data)
+        except ValueError as e:
+            return _text(f"Error: {e}")
+        return _text(f"Added thread: {tid}")
+
+    return _text(f"Error: unknown action {action!r}. Use 'add', 'resolve', or 'list'.")
+
+
+@tool(
+    "reflect",
+    "Trigger an immediate subconscious reflection cycle. "
+    "Reads open threads, recent session logs, and memory, then decides whether to act.",
+    {},
+)
+async def reflect(args: dict) -> dict:
+    from .scheduler import _run_subconscious
+    await asyncio.to_thread(_run_subconscious)
+    return _text("Reflection cycle complete.")
+
+
 CUSTOM_TOOLS = [
     telegram_send, telegram_send_file, save_handover, self_restart, self_update,
     update_config, read_skill_tool, search_sessions,
     browse, browser_click, browser_type, browser_screenshot, browser_eval,
     telegram_send_voice, telegram_react,
     test_tool, deploy_tool, disable_tool,
+    update_subconscious, reflect,
 ]

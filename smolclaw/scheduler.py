@@ -17,6 +17,7 @@ from .tools import TelegramSender
 _telegram = TelegramSender()
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
+SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 
 
 _CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
@@ -55,8 +56,48 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
     if heartbeat and HEARTBEAT_OK in result:
         logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
         return
+    if job_id == "subconscious" and SUBCONSCIOUS_OK in result:
+        logger.debug("Subconscious {}: silent (SUBCONSCIOUS_OK)", job_id)
+        return
     if deliver_to and result != "(no response)":
         _telegram.send(chat_id=deliver_to, message=result)
+
+
+def _run_subconscious() -> None:
+    """Run a subconscious reflection cycle."""
+    from .config import Config
+    cfg = Config.load()
+    if not cfg.get("subconscious_enabled", True):
+        logger.debug("Subconscious disabled via config")
+        return
+
+    from . import subconscious
+    threads = subconscious.load_threads()
+
+    # Read tail of recent session logs
+    sessions_dir = workspace.HOME / "sessions"
+    recent_logs = ""
+    if sessions_dir.exists():
+        tail_bytes = 4000
+        log_parts = []
+        for f in sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:3]:
+            try:
+                size = f.stat().st_size
+                if size == 0:
+                    continue
+                with open(f) as fh:
+                    if size > tail_bytes:
+                        fh.seek(size - tail_bytes)
+                        fh.readline()  # skip partial first line
+                    log_parts.append(fh.read())
+            except Exception:
+                continue
+        recent_logs = "\n".join(log_parts)[:8000]
+
+    memory = workspace.read(workspace.MEMORY)
+    prompt = subconscious.build_prompt(threads, recent_logs, memory)
+    deliver_to = default_chat_id()
+    _run_job("subconscious", prompt, deliver_to, heartbeat=False)
 
 
 def _cleanup_idle_browsers() -> None:
@@ -81,6 +122,19 @@ def setup_scheduler() -> BackgroundScheduler:
         id="_browser_cleanup",
         replace_existing=True,
     )
+
+    # Subconscious reflection loop
+    from .config import Config
+    cfg = Config.load()
+    if cfg.get("subconscious_enabled", True):
+        interval_hours = cfg.get("subconscious_interval_hours", 2)
+        scheduler.add_job(
+            _run_subconscious,
+            IntervalTrigger(hours=interval_hours),
+            id="_subconscious",
+            replace_existing=True,
+        )
+        logger.info("Scheduled: subconscious (every {}h)", interval_hours)
 
     crons_path = workspace.CRONS
     if not crons_path.exists():

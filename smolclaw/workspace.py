@@ -19,7 +19,8 @@ SKILLS_DIR   = HOME / "skills"
 TOOLS_DIR    = HOME / "tools"
 TOOLS_STAGING = HOME / "tools" / ".staging"
 UPLOADS_DIR  = HOME / "uploads"
-HANDOVER   = HOME / "handover.md"
+HANDOVER       = HOME / "handover.md"
+SUBCONSCIOUS   = HOME / "subconscious.yaml"
 CONFIG        = HOME / "smolclaw.json"
 SESSION_STATE = HOME / "session_state.json"
 PID_FILE      = HOME / ".pid"
@@ -49,6 +50,10 @@ def init() -> None:
             if src.exists():
                 shutil.copy(src, dest)
 
+    # Initialize subconscious.yaml with empty threads if missing
+    if not SUBCONSCIOUS.exists():
+        SUBCONSCIOUS.write_text("threads: []\n")
+
     # Copy skill templates
     src_skills = _TEMPLATES / "skills"
     if src_skills.is_dir():
@@ -60,6 +65,12 @@ def init() -> None:
                     dest = dest_skill / f.name
                     if not dest.exists():
                         shutil.copy(f, dest)
+
+
+def read_template(name: str) -> str:
+    """Read a template file by name from the shipped templates directory."""
+    path = _TEMPLATES / name
+    return path.read_text()
 
 
 def read(path: Path, default: str = "") -> str:

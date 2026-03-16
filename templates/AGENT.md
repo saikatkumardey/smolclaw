@@ -37,6 +37,8 @@ Pick the right tool first time.
 | Validate a staged tool | `test_tool` |
 | Deploy a staged tool to live | `deploy_tool` |
 | Disable a broken tool | `disable_tool` |
+| Manage subconscious threads | `update_subconscious` |
+| Trigger a reflection cycle | `reflect` |
 
 ## Sub-agents
 

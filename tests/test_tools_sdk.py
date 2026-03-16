@@ -1,7 +1,9 @@
-"""tools_sdk tests — auth guards, save_handover, update_config."""
+"""tools_sdk tests — auth guards, save_handover, update_config, subconscious."""
 from __future__ import annotations
 
+import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -268,3 +270,83 @@ class TestDisableTool:
         from smolclaw.tools_sdk import disable_tool
         result = await _call_tool(disable_tool, {"tool_name": "nope"})
         assert "not found" in result["content"][0]["text"]
+
+
+def _make_thread(id: str, priority: str = "medium", hours_until_expiry: int = 24) -> dict:
+    now = datetime.now(timezone.utc)
+    return {
+        "id": id,
+        "created": now.isoformat(),
+        "priority": priority,
+        "summary": f"Test thread {id}",
+        "action": f"Do something about {id}",
+        "expires": (now + timedelta(hours=hours_until_expiry)).isoformat(),
+    }
+
+
+def _patch_subconscious(tmp_path, monkeypatch):
+    import smolclaw.workspace as ws
+    monkeypatch.setattr(ws, "HOME", tmp_path)
+    monkeypatch.setattr(ws, "SUBCONSCIOUS", tmp_path / "subconscious.yaml")
+    (tmp_path / "subconscious.yaml").write_text("threads: []\n")
+
+
+class TestUpdateSubconscious:
+    @pytest.mark.asyncio
+    async def test_add(self, monkeypatch, tmp_path):
+        _patch_subconscious(tmp_path, monkeypatch)
+        from smolclaw.tools_sdk import update_subconscious
+        thread = _make_thread("new-thread")
+        result = await _call_tool(update_subconscious, {
+            "action": "add",
+            "thread_data": json.dumps(thread),
+        })
+        text = result["content"][0]["text"]
+        assert "Added" in text
+        assert "new-thread" in text
+
+    @pytest.mark.asyncio
+    async def test_resolve(self, monkeypatch, tmp_path):
+        _patch_subconscious(tmp_path, monkeypatch)
+        from smolclaw.subconscious import add_thread
+        add_thread(_make_thread("to-resolve"))
+        from smolclaw.tools_sdk import update_subconscious
+        result = await _call_tool(update_subconscious, {
+            "action": "resolve",
+            "thread_id": "to-resolve",
+        })
+        text = result["content"][0]["text"]
+        assert "Resolved" in text
+
+    @pytest.mark.asyncio
+    async def test_list(self, monkeypatch, tmp_path):
+        _patch_subconscious(tmp_path, monkeypatch)
+        from smolclaw.subconscious import add_thread
+        add_thread(_make_thread("listed"))
+        from smolclaw.tools_sdk import update_subconscious
+        result = await _call_tool(update_subconscious, {"action": "list"})
+        text = result["content"][0]["text"]
+        assert "listed" in text
+
+    @pytest.mark.asyncio
+    async def test_invalid_action(self, monkeypatch, tmp_path):
+        _patch_subconscious(tmp_path, monkeypatch)
+        from smolclaw.tools_sdk import update_subconscious
+        result = await _call_tool(update_subconscious, {"action": "nope"})
+        text = result["content"][0]["text"]
+        assert "unknown action" in text.lower()
+
+    @pytest.mark.asyncio
+    async def test_cap_enforcement(self, monkeypatch, tmp_path):
+        _patch_subconscious(tmp_path, monkeypatch)
+        from smolclaw.subconscious import save_threads
+        threads = [_make_thread(f"t-{i}") for i in range(20)]
+        save_threads(threads)
+        from smolclaw.tools_sdk import update_subconscious
+        overflow = _make_thread("overflow")
+        result = await _call_tool(update_subconscious, {
+            "action": "add",
+            "thread_data": json.dumps(overflow),
+        })
+        text = result["content"][0]["text"]
+        assert "cap reached" in text.lower()
