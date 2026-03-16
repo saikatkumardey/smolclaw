@@ -96,6 +96,15 @@ _sessions: dict[str, _Session] = {}
 _session_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
+def _prune_stale_locks() -> None:
+    """Remove locks for chat_ids that have no active session."""
+    stale = [cid for cid in _session_locks if cid not in _sessions]
+    for cid in stale:
+        lock = _session_locks[cid]
+        if not lock.locked():
+            del _session_locks[cid]
+
+
 async def reset_session(chat_id: str) -> None:
     """Disconnect and remove the cached session for chat_id."""
     session = _sessions.pop(chat_id, None)
@@ -217,12 +226,22 @@ def _workspace_context() -> str:
     )
 
 
-def _system_prompt() -> str:
+def _system_prompt(slim: bool = False) -> str:
     # Order is deliberately stable-first for prompt caching:
     # workspace context (static) → SOUL (rarely changes) → USER (rarely changes)
     # → skills (infrequently changes) → MEMORY (frequently changes)
     # → handover/onboarding (ephemeral, always last)
+    #
+    # slim=True: stripped-down prompt for cron jobs (no SOUL, USER, skills, handover)
     parts = [_workspace_context()]
+
+    if slim:
+        # Crons only need AGENT.md (operational rules) and MEMORY.md
+        if agent_content := workspace.read(workspace.AGENT):
+            parts.append(f"=== AGENT.md ===\n{agent_content.strip()}")
+        if memory := workspace.read(workspace.MEMORY):
+            parts.append(f"=== MEMORY.md ===\n{memory.strip()}")
+        return "\n\n".join(parts)
 
     user_content = ""
     for path, name in (
@@ -405,14 +424,17 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         # Claude Code supports trailing-* wildcards in allowed_tools.
         allowed.append("mcp__dynamic__*")
 
-    # Use cheaper model for subconscious cycles
+    # Cron jobs use a cheaper model and slimmer system prompt
+    is_cron = chat_id.startswith("cron:")
     model = cfg.get("model")
+    if is_cron:
+        model = cfg.get("cron_model") or model
     if chat_id.startswith("cron:subconscious"):
         model = cfg.get("subconscious_model") or model
 
     return ClaudeAgentOptions(
         model=model,
-        system_prompt=_system_prompt(),
+        system_prompt=_system_prompt(slim=is_cron),
         allowed_tools=allowed,
         mcp_servers=mcp_servers,
         permission_mode="acceptEdits",
@@ -523,4 +545,5 @@ async def run(chat_id: str, user_message: str) -> str:
         logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
         _sessions.pop(chat_id, None)
 
+    _prune_stale_locks()
     return reply

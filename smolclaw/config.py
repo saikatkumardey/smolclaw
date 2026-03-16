@@ -18,6 +18,7 @@ class Config:
         "subagent_max_turns": 15,
         "subagent_timeout": 120,
         "btw_model": "claude-haiku-4-5-20251001",
+        "cron_model": "claude-sonnet-4-6",
         "subconscious_enabled": True,
         "subconscious_interval_hours": 2,
         "subconscious_model": "claude-sonnet-4-6",
