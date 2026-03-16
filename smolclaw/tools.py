@@ -44,13 +44,12 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
         if not str(path).startswith(str(workspace.HOME.resolve())):
             return f"Error: file path {file_path!r} is outside the workspace."
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        with open(path, "rb") as f:
-            with httpx.Client(timeout=30) as client:
-                r = client.post(
-                    f"https://api.telegram.org/bot{token}/sendDocument",
-                    data={"chat_id": chat_id},
-                    files={"document": (path.name, f)},
-                )
+        with open(path, "rb") as f, httpx.Client(timeout=30) as client:
+            r = client.post(
+                f"https://api.telegram.org/bot{token}/sendDocument",
+                data={"chat_id": chat_id},
+                files={"document": (path.name, f)},
+            )
         return "Sent." if r.is_success else f"Failed: {r.text}"
     except FileNotFoundError:
         return f"File not found: {file_path}"
@@ -63,16 +62,15 @@ def _send_telegram_voice(chat_id: str, audio_path: str, caption: str = "") -> st
     try:
         path = Path(audio_path).resolve()
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        with open(path, "rb") as f:
-            with httpx.Client(timeout=30) as client:
-                data = {"chat_id": chat_id}
-                if caption:
-                    data["caption"] = caption[:1024]
-                r = client.post(
-                    f"https://api.telegram.org/bot{token}/sendVoice",
-                    data=data,
-                    files={"voice": (path.name, f, "audio/ogg")},
-                )
+        with open(path, "rb") as f, httpx.Client(timeout=30) as client:
+            data = {"chat_id": chat_id}
+            if caption:
+                data["caption"] = caption[:1024]
+            r = client.post(
+                f"https://api.telegram.org/bot{token}/sendVoice",
+                data=data,
+                files={"voice": (path.name, f, "audio/ogg")},
+            )
         return "Sent." if r.is_success else f"Failed: {r.text}"
     except FileNotFoundError:
         return f"File not found: {audio_path}"
@@ -82,7 +80,6 @@ def _send_telegram_voice(chat_id: str, audio_path: str, caption: str = "") -> st
 
 def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural") -> str:
     """Convert text to OGG voice file using edge-tts. Returns output path or error."""
-    import asyncio
     import subprocess
     import tempfile
 

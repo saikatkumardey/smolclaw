@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from smolclaw.doctor import (
     Status,
+    _check_process,
     _check_runtime,
     _check_state,
     _check_workspace,
@@ -429,6 +430,28 @@ def test_runtime_edge_tts_missing(tmp_path, monkeypatch):
     tts_checks = [c for c in results if "edge-tts" in c.message.lower() or "ffmpeg" in c.message.lower()]
     assert len(tts_checks) >= 1
     assert any(c.status == Status.WARN for c in tts_checks)
+
+
+# ---------------------------------------------------------------------------
+# Process checks
+# ---------------------------------------------------------------------------
+
+
+def test_process_running(tmp_path, monkeypatch):
+    _patch_workspace(tmp_path, monkeypatch)
+    with patch("smolclaw.daemon.is_running", return_value=(True, 12345)):
+        results = _check_process()
+    assert len(results) == 1
+    assert results[0].status == Status.OK
+    assert "12345" in results[0].message
+
+
+def test_process_not_running(tmp_path, monkeypatch):
+    _patch_workspace(tmp_path, monkeypatch)
+    with patch("smolclaw.daemon.is_running", return_value=(False, None)):
+        results = _check_process()
+    assert len(results) == 1
+    assert results[0].status == Status.WARN
 
 
 # ---------------------------------------------------------------------------

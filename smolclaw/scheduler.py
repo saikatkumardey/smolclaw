@@ -7,6 +7,7 @@ import threading
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 
 from . import workspace
@@ -54,8 +55,29 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
         _telegram.send(chat_id=deliver_to, message=result)
 
 
+def _cleanup_idle_browsers() -> None:
+    """Close browser contexts that have been idle for too long."""
+    try:
+        from .browser import BrowserManager
+        mgr = BrowserManager.get()
+        # Only run if browser has been used (avoid importing Playwright needlessly)
+        if mgr._contexts:
+            asyncio.run(mgr.cleanup_idle())
+    except Exception as e:
+        logger.debug("Browser cleanup skipped: {}", e)
+
+
 def setup_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
+
+    # Periodic browser idle cleanup (every 5 min)
+    scheduler.add_job(
+        _cleanup_idle_browsers,
+        IntervalTrigger(minutes=5),
+        id="_browser_cleanup",
+        replace_existing=True,
+    )
+
     crons_path = workspace.CRONS
     if not crons_path.exists():
         return scheduler

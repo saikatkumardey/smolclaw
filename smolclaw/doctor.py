@@ -390,6 +390,17 @@ def _check_runtime() -> list[CheckResult]:
 # ---------------------------------------------------------------------------
 
 
+def _check_process() -> list[CheckResult]:
+    results: list[CheckResult] = []
+    from .daemon import is_running
+    running, pid = is_running()
+    if running:
+        results.append(CheckResult(Status.OK, f"Daemon running (PID {pid})"))
+    else:
+        results.append(CheckResult(Status.WARN, "Daemon not running", "Run: smolclaw start"))
+    return results
+
+
 def _check_state() -> list[CheckResult]:
     results: list[CheckResult] = []
     home = workspace.HOME
@@ -512,6 +523,7 @@ def run() -> int:
     categories: dict[str, list[CheckResult]] = {}
     categories["Workspace"] = _check_workspace()
     categories["Runtime"] = _check_runtime()
+    categories["Process"] = _check_process()
     categories["State"] = _check_state()
     _print_results(categories)
 

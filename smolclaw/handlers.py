@@ -120,6 +120,8 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/effort — switch thinking effort (low/medium/high/max)\n"
         "/reset — clear conversation history\n"
         "/cancel — cancel the current running task\n"
+        "/tasks — list background tasks\n"
+        "/crons — list scheduled jobs\n"
         "/reload — reload skills and memory\n"
         "/restart — restart the bot process\n"
         "/update — update smolclaw and restart\n"
@@ -143,6 +145,8 @@ async def on_status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     except FileNotFoundError:
         memory_lines = 0
     current_model = get_current_model()
+    current_effort = get_current_effort()
+    dynamic_names = ", ".join(t.name for t in dynamic_tools) if dynamic_tools else "none"
     result = get_last_result(str(update.effective_chat.id))
     cost_line = ""
     if result:
@@ -159,10 +163,11 @@ async def on_status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
     text = (
         f"Model: {current_model}\n"
+        f"Effort: {current_effort}\n"
         f"Workspace: {workspace.HOME}\n"
         f"Built-in tools: {builtin_count}\n"
         f"Custom SDK tools: {custom_sdk_count}\n"
-        f"Dynamic tools: {len(dynamic_tools)}\n"
+        f"Dynamic tools: {len(dynamic_tools)} ({dynamic_names})\n"
         f"Skills: {skill_count}\n"
         f"Memory: {memory_lines} lines"
         f"{cost_line}"
@@ -524,11 +529,16 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id = str(update.effective_chat.id)
     doc = update.message.document
     caption = update.message.caption or ""
-    file = await context.bot.get_file(doc.file_id)
-    raw_name = doc.file_name or f"{doc.file_unique_id}.bin"
-    safe_name = Path(raw_name).name
-    dest = workspace.UPLOADS_DIR / safe_name
-    await file.download_to_drive(str(dest))
+    try:
+        file = await context.bot.get_file(doc.file_id)
+        raw_name = doc.file_name or f"{doc.file_unique_id}.bin"
+        safe_name = Path(raw_name).name
+        dest = workspace.UPLOADS_DIR / safe_name
+        await file.download_to_drive(str(dest))
+    except Exception as e:
+        logger.exception("Error downloading document: %s", e)
+        await update.message.reply_text(_classify_error(e))
+        return
     mime = doc.mime_type or "application/octet-stream"
     agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
     await _handle_upload(update, context, agent_msg)
@@ -539,9 +549,14 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle photos: save to uploads/, pass path to agent for native vision."""
     chat_id = str(update.effective_chat.id)
     caption = update.message.caption or ""
-    photo = update.message.photo[-1]  # highest resolution
-    file = await context.bot.get_file(photo.file_id)
-    dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
-    await file.download_to_drive(str(dest))
+    try:
+        photo = update.message.photo[-1]  # highest resolution
+        file = await context.bot.get_file(photo.file_id)
+        dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
+        await file.download_to_drive(str(dest))
+    except Exception as e:
+        logger.exception("Error downloading photo: %s", e)
+        await update.message.reply_text(_classify_error(e))
+        return
     agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent a photo. Saved to: {dest}]\n\n{caption}"
     await _handle_upload(update, context, agent_msg)
