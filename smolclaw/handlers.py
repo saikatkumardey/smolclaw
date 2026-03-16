@@ -420,8 +420,9 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.reply_text("Usage: /btw <question>\nQuick side question — no tools, no history.")
         return
 
+    from .config import Config
     system = "You are a helpful assistant. Be concise and direct. Use Telegram Markdown v1 formatting (*bold*, _italic_). No headers."
-    btw_model = "claude-haiku-4-5-20251001"
+    btw_model = Config.load().get("btw_model")
 
     try:
         async with _TypingLoop(context.bot, chat_id):

@@ -95,8 +95,8 @@ async def telegram_send_file(args: dict) -> dict:
 
 @tool(
     "update_config",
-    "Update a runtime configuration value (max_turns, subagent_timeout, subagent_max_turns). Use /models command for model changes.",
-    {"key": str, "value": int},
+    "Update a runtime configuration value (max_turns, subagent_timeout, subagent_max_turns, btw_model). Use /models command for main model changes.",
+    {"key": str, "value": str},
 )
 async def update_config(args: dict) -> dict:
     from .config import Config
@@ -107,11 +107,14 @@ async def update_config(args: dict) -> dict:
     if key not in mutable:
         return {"content": [{"type": "text", "text": f"Error: Cannot set '{key}' via this tool. Use /models for model changes."}]}
     cfg = Config.load()
+    # Coerce to the expected type from DEFAULTS
+    expected_type = type(Config.DEFAULTS[key])
     try:
-        cfg.set(key, int(args["value"]))
+        value = expected_type(args["value"])
+        cfg.set(key, value)
     except (KeyError, TypeError, ValueError) as e:
         return {"content": [{"type": "text", "text": f"Error: {e}"}]}
-    return {"content": [{"type": "text", "text": f"Set {key} = {args['value']}"}]}
+    return {"content": [{"type": "text", "text": f"Set {key} = {value}"}]}
 
 
 @tool("read_skill", "Read the instructions for a skill by name.", {"name": str})

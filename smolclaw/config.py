@@ -17,6 +17,7 @@ class Config:
         "max_turns": 10,
         "subagent_max_turns": 15,
         "subagent_timeout": 120,
+        "btw_model": "claude-haiku-4-5-20251001",
     }
 
     def __init__(self, data: dict | None = None) -> None:
