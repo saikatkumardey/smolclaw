@@ -12,27 +12,31 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from . import workspace
-from .tool_loader import load_custom_tools
-from .tools import MAX_TG_MSG
-from .tools_sdk import CUSTOM_TOOLS
-from .session_state import SessionState
-from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
 from .agent import (
-    AVAILABLE_MODELS,
-    AVAILABLE_EFFORTS,
     _CONTEXT_WINDOW_TOKENS,
-    get_current_model,
+    AVAILABLE_EFFORTS,
+    AVAILABLE_MODELS,
     get_current_effort,
+    get_current_model,
     get_last_result,
     interrupt_session,
     list_tasks,
     reset_session,
-    run as agent_run,
     session_log,
-    set_model,
     set_effort,
+    set_model,
+)
+from .agent import (
+    run as agent_run,
 )
 from .auth import require_allowed
+from .session_state import SessionState
+from .tool_loader import load_custom_tools
+from .tools import MAX_TG_MSG
+from .tools_sdk import CUSTOM_TOOLS
+from .version import check_remote_version as _check_remote_version
+from .version import get_update_summary as _get_update_summary
+from .version import local_version as _local_version
 
 logger = logging.getLogger(__name__)
 

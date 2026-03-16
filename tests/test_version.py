@@ -4,8 +4,6 @@ from __future__ import annotations
 import re
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestLocalVersion:
     def test_returns_version_string(self):

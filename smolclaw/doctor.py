@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -115,7 +115,7 @@ def _check_workspace() -> list[CheckResult]:
             results.append(CheckResult(
                 Status.WARN,
                 f"{name} is empty (0 bytes) — may be corrupted",
-                f"Delete and run: smolclaw setup",
+                "Delete and run: smolclaw setup",
             ))
         else:
             results.append(CheckResult(Status.OK, f"{name} present"))

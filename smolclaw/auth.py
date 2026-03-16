@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import functools
 import os
-from typing import Callable
+from collections.abc import Callable
 
 
 def allowed_ids() -> set[str]:

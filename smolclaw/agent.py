@@ -11,26 +11,28 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from claude_agent_sdk import (
-    ClaudeSDKClient,
-    ClaudeAgentOptions,
     AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
     ResultMessage,
     TextBlock,
     ToolUseBlock,
-    query,
     create_sdk_mcp_server,
+    query,
     tool,
 )
+from loguru import logger
 
+from . import workspace
+from .config import Config
+from .handover import clear as handover_clear
+from .handover import exists as handover_exists
+from .handover import load as handover_load
+from .handover import save as handover_save
+from .session_state import SessionState
 from .skills import list_skills
 from .tool_loader import load_custom_tools
 from .tools_sdk import CUSTOM_TOOLS
-from . import workspace
-from .config import Config
-from .session_state import SessionState
-from .handover import load as handover_load, clear as handover_clear, exists as handover_exists, save as handover_save
-
-from loguru import logger
 
 # Auto-rotation: when context exceeds this fraction, build a handover and reset
 _AUTO_ROTATE_THRESHOLD = 0.70
@@ -258,7 +260,7 @@ def _system_prompt() -> str:
 
 
 def _context_fill_from_result(result: ResultMessage | None) -> float:
-    """Return context fill fraction (0.0–1.0) from a ResultMessage."""
+    """Return context fill fraction (0.0-1.0) from a ResultMessage."""
     if not result:
         return 0.0
     usage = result.usage or {}
@@ -308,8 +310,9 @@ def _build_auto_handover(chat_id: str) -> str:
 
 def _make_spawn_task_tool(chat_id: str, cfg: Config):
     """Build spawn_task with task registry and progress-capable sub-agents."""
-    from .tools import _send_telegram
     import time
+
+    from .tools import _send_telegram
 
     subagent_timeout = cfg.get("subagent_timeout")
     subagent_max_turns = cfg.get("subagent_max_turns")
@@ -358,7 +361,7 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
                                     parts.append(block.text)
                 result = "\n".join(parts) or "(no output)"
                 _task_registry[task_id]["status"] = "done"
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 result = f"Task {task_id} timed out."
                 _task_registry[task_id]["status"] = "timed_out"
             except Exception as e:
@@ -382,11 +385,11 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions with full tool set."""
     cfg = Config.load()
     spawn_task = _make_spawn_task_tool(chat_id, cfg)
-    smolclaw_tools = CUSTOM_TOOLS + [spawn_task]
+    smolclaw_tools = [*CUSTOM_TOOLS, spawn_task]
     smolclaw_server = create_sdk_mcp_server(name="smolclaw", version="1.0.0", tools=smolclaw_tools)
 
     smolclaw_tool_names = [f"mcp__smolclaw__{t.name}" for t in smolclaw_tools]
-    allowed = ["Bash", "Read", "Write", "WebSearch", "WebFetch"] + smolclaw_tool_names
+    allowed = ["Bash", "Read", "Write", "WebSearch", "WebFetch", *smolclaw_tool_names]
 
     mcp_servers = {"smolclaw": smolclaw_server}
 

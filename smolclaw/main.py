@@ -12,8 +12,6 @@ os.environ.pop("CLAUDECODE", None)
 import typer
 from dotenv import load_dotenv
 
-
-
 app = typer.Typer(name="smolclaw", help="Your personal AI agent.", add_completion=False)
 
 
@@ -58,10 +56,11 @@ def setup_token() -> None:
     """Configure Claude authentication (API key or Claude.ai subscription login)."""
     import getpass
     import subprocess
+
+    import questionary
     from rich.console import Console
     from rich.panel import Panel
     from rich.rule import Rule
-    import questionary
 
     from . import workspace
     from .setup import _read_env, _write_env
@@ -257,9 +256,17 @@ def start(
         typer.echo("ALLOWED_USER_IDS is not set. Run `smolclaw setup` to configure your Telegram user ID.")
         raise typer.Exit(1)
 
-    from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, MessageReactionHandler, filters
-    from .scheduler import setup_scheduler
+    from telegram.ext import (
+        ApplicationBuilder,
+        CallbackQueryHandler,
+        CommandHandler,
+        MessageHandler,
+        MessageReactionHandler,
+        filters,
+    )
+
     from . import handlers as h
+    from .scheduler import setup_scheduler
 
     # ---------------------------------------------------------------------------
     # Build and run the bot
@@ -315,7 +322,9 @@ def start(
             default_chat = default_chat_id()
             if default_chat:
                 from importlib.metadata import version as pkg_version
-                from .handover import exists as handover_exists, load as handover_load
+
+                from .handover import exists as handover_exists
+                from .handover import load as handover_load
                 try:
                     ver = pkg_version("smolclaw")
                 except Exception:

@@ -39,3 +39,22 @@ dev-dependencies = [
     "pytest-asyncio>=0.23",
 ]
 
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PIE", "C4", "PT", "TCH"]
+ignore = [
+    "E501",     # line length — handled by formatter when needed
+    "SIM105",   # suppressible-exception — contextlib.suppress less readable here
+    "UP017",    # datetime.UTC — keep timezone.utc for 3.12 compat with older SDKs
+    "B904",     # raise-without-from — often intentional in tool wrappers
+    "SIM108",   # ternary — sometimes less readable
+    "RUF012",   # mutable class var — Config.DEFAULTS is intentionally mutable at class level
+    "TCH",      # type-checking imports — adds complexity for minimal benefit in this codebase
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["smolclaw"]
+

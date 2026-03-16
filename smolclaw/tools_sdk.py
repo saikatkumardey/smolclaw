@@ -10,10 +10,12 @@ from pathlib import Path
 
 from claude_agent_sdk import tool
 
-from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _text_to_voice, _set_reaction
 from . import workspace
-from .auth import is_allowed, default_chat_id
-from .version import local_version as _local_version, get_update_summary as _get_update_summary, check_remote_version as _check_remote_version
+from .auth import default_chat_id, is_allowed
+from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _set_reaction, _text_to_voice
+from .version import check_remote_version as _check_remote_version
+from .version import get_update_summary as _get_update_summary
+from .version import local_version as _local_version
 
 _ALLOWED_SOURCE_PREFIX = "git+https://github.com/saikatkumardey/smolclaw"
 

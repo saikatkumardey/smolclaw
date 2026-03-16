@@ -1,7 +1,8 @@
-import os
-import pytest
 from unittest.mock import MagicMock
-from smolclaw.auth import allowed_ids, is_allowed, default_chat_id, require_allowed
+
+import pytest
+
+from smolclaw.auth import allowed_ids, default_chat_id, is_allowed, require_allowed
 
 
 def test_allowed_ids_parses_env(monkeypatch):

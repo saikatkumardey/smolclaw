@@ -1,7 +1,6 @@
 """Handler tests — Telegram message handling, chunking, markdown conversion."""
 from __future__ import annotations
 
-import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -218,7 +217,7 @@ class TestErrorClassification:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=asyncio.TimeoutError()):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=TimeoutError()):
             await on_message(update, ctx)
         msg = update.message.reply_text.await_args_list[0][0][0]
         assert "timed out" in msg.lower() or "timeout" in msg.lower()

@@ -6,13 +6,11 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from smolclaw.doctor import (
-    CheckResult,
     Status,
     _check_runtime,
     _check_state,
@@ -20,7 +18,6 @@ from smolclaw.doctor import (
     _human_size,
     run,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -280,9 +277,8 @@ def test_runtime_no_auth_at_all(tmp_path, monkeypatch):
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"result": {"username": "Bot"}}
 
-    with patch("smolclaw.doctor.requests.get", return_value=mock_resp):
-        with patch("shutil.which", return_value=None):
-            results = _check_runtime()
+    with patch("smolclaw.doctor.requests.get", return_value=mock_resp), patch("shutil.which", return_value=None):
+        results = _check_runtime()
 
     auth_checks = [c for c in results if "auth" in c.message.lower() or "API key" in c.message]
     assert any(c.status == Status.FAIL for c in auth_checks)

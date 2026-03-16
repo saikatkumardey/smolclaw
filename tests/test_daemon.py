@@ -6,8 +6,6 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
@@ -20,8 +18,8 @@ def _patch_pid_file(tmp_path, monkeypatch):
 
 class TestPidFileRoundTrip:
     def test_write_and_read(self, tmp_path, monkeypatch):
-        pid_file = _patch_pid_file(tmp_path, monkeypatch)
-        from smolclaw.daemon import write_pid, read_pid
+        _patch_pid_file(tmp_path, monkeypatch)
+        from smolclaw.daemon import read_pid, write_pid
         write_pid(12345)
         assert read_pid() == 12345
 
@@ -32,7 +30,7 @@ class TestPidFileRoundTrip:
 
     def test_delete_removes_file(self, tmp_path, monkeypatch):
         pid_file = _patch_pid_file(tmp_path, monkeypatch)
-        from smolclaw.daemon import write_pid, delete_pid
+        from smolclaw.daemon import delete_pid, write_pid
         write_pid(99)
         assert pid_file.exists()
         delete_pid()
@@ -52,7 +50,7 @@ class TestIsRunning:
 
     def test_dead_process(self, tmp_path, monkeypatch):
         pid_file = _patch_pid_file(tmp_path, monkeypatch)
-        from smolclaw.daemon import write_pid, is_running
+        from smolclaw.daemon import is_running, write_pid
         write_pid(999999)  # almost certainly not running
         with patch("os.kill", side_effect=ProcessLookupError):
             running, pid = is_running()
@@ -63,7 +61,7 @@ class TestIsRunning:
     def test_stale_pid_not_smolclaw(self, tmp_path, monkeypatch):
         """PID exists but belongs to a non-smolclaw process — should return False."""
         _patch_pid_file(tmp_path, monkeypatch)
-        from smolclaw.daemon import write_pid, is_running
+        from smolclaw.daemon import is_running, write_pid
         write_pid(os.getpid())  # current process is pytest, not smolclaw
         with patch("smolclaw.daemon._is_smolclaw_process", return_value=False):
             running, pid = is_running()
@@ -72,7 +70,7 @@ class TestIsRunning:
 
     def test_alive_smolclaw_process(self, tmp_path, monkeypatch):
         _patch_pid_file(tmp_path, monkeypatch)
-        from smolclaw.daemon import write_pid, is_running
+        from smolclaw.daemon import is_running, write_pid
         write_pid(os.getpid())
         with patch("smolclaw.daemon._is_smolclaw_process", return_value=True):
             running, pid = is_running()
@@ -82,16 +80,18 @@ class TestIsRunning:
 
 class TestIsSmolclawProcess:
     def test_matches_smolclaw(self, monkeypatch):
-        from smolclaw.daemon import _is_smolclaw_process
         from unittest.mock import MagicMock
+
+        from smolclaw.daemon import _is_smolclaw_process
         result = MagicMock()
         result.stdout = "/usr/local/bin/smolclaw start --foreground"
         with patch("subprocess.run", return_value=result):
             assert _is_smolclaw_process(123) is True
 
     def test_no_match(self, monkeypatch):
-        from smolclaw.daemon import _is_smolclaw_process
         from unittest.mock import MagicMock
+
+        from smolclaw.daemon import _is_smolclaw_process
         result = MagicMock()
         result.stdout = "/usr/bin/python3 some_other_script.py"
         with patch("subprocess.run", return_value=result):
@@ -106,6 +106,7 @@ class TestIsSmolclawProcess:
     def test_timeout_returns_true(self):
         """If ps times out, assume it could be smolclaw (safe default)."""
         import subprocess
+
         from smolclaw.daemon import _is_smolclaw_process
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ps", 5)):
             assert _is_smolclaw_process(123) is True

@@ -6,8 +6,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import tool, SdkMcpTool
-
+from claude_agent_sdk import SdkMcpTool, tool
 from loguru import logger
 
 _known_tool_files: set[str] = set()
@@ -24,7 +23,7 @@ def _make_sdk_tool(name: str, desc: str, properties: dict, required: list, execu
     Build a claude-agent-sdk @tool-decorated async function wrapping a sync execute_fn.
     """
     # Build input_schema as {param: str} dict (SDK resolves types from annotations)
-    input_schema: dict[str, Any] = {k: str for k in properties}
+    input_schema: dict[str, Any] = dict.fromkeys(properties, str)
 
     @tool(name, desc, input_schema)
     async def _dyn_tool(args: dict) -> dict:

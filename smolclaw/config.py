@@ -7,7 +7,7 @@ from typing import Any
 from . import workspace
 
 # Cache: (file_path, file_mtime, Config instance)
-_cache: tuple[str, float, "Config"] | None = None
+_cache: tuple[str, float, Config] | None = None
 
 
 class Config:
@@ -46,7 +46,7 @@ class Config:
         workspace.write_json(workspace.CONFIG, self._data)
 
     @classmethod
-    def load(cls) -> "Config":
+    def load(cls) -> Config:
         global _cache
         path = workspace.CONFIG
         try:

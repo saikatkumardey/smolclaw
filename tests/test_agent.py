@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, ANY
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -38,7 +38,8 @@ def test_system_prompt_contains_soul(tmp_path, monkeypatch):
     _patch_workspace(tmp_path, monkeypatch)
     from smolclaw.agent import _system_prompt
     prompt = _system_prompt()
-    assert isinstance(prompt, str) and "SOUL" in prompt
+    assert isinstance(prompt, str)
+    assert "SOUL" in prompt
 
 
 @pytest.mark.asyncio
@@ -53,7 +54,8 @@ async def test_run_returns_string(tmp_path, monkeypatch):
     with patch("smolclaw.agent.load_custom_tools", return_value=[]):
         try:
             result = await ag.run(chat_id="test-chat", user_message="hi")
-            assert isinstance(result, str) and "Hello" in result
+            assert isinstance(result, str)
+            assert "Hello" in result
         finally:
             ag._sessions.pop("test-chat", None)
 
@@ -110,7 +112,7 @@ async def test_concurrent_run_same_chat_no_duplicate_sessions(tmp_path, monkeypa
          patch("smolclaw.agent.ClaudeSDKClient", return_value=mock_client), \
          patch("smolclaw.agent._make_options", return_value=MagicMock()):
         try:
-            r1, r2 = await asyncio.gather(
+            _r1, _r2 = await asyncio.gather(
                 ag.run(chat_id="race-test", user_message="a"),
                 ag.run(chat_id="race-test", user_message="b"),
             )
@@ -241,7 +243,7 @@ async def test_spawn_task_passes_model_and_cwd_to_subagent(tmp_path, monkeypatch
 
     with patch("smolclaw.agent.query", fake_query), \
          patch("smolclaw.tools._send_telegram"):
-        result = await spawn_tool.handler({"task": "say hello"})
+        await spawn_tool.handler({"task": "say hello"})
         # Let the background task run
         await asyncio.sleep(0.1)
 
@@ -258,6 +260,7 @@ async def test_spawn_task_passes_model_and_cwd_to_subagent(tmp_path, monkeypatch
 def test_list_tasks_excludes_old_completed():
     """Completed tasks older than 1 hour should be pruned from the registry."""
     import time
+
     import smolclaw.agent as ag
 
     # Clear registry

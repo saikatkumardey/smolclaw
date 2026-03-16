@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import getpass
-import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
-from typing import Optional
 
 import questionary
 import requests
@@ -87,7 +84,7 @@ def _already(label: str, value: str) -> None:
     )
 
 
-def _validate_token(token: str) -> tuple[bool, Optional[str]]:
+def _validate_token(token: str) -> tuple[bool, str | None]:
     """Call Telegram getMe. Returns (ok, bot_username_or_error)."""
     try:
         resp = requests.get(
@@ -101,7 +98,7 @@ def _validate_token(token: str) -> tuple[bool, Optional[str]]:
         return False, data.get("description", "Invalid token")
     except requests.exceptions.ConnectionError:
         return False, "network_error"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return False, f"error: {e}"
 
 
@@ -437,7 +434,7 @@ _WATCHDOG_DEST = Path("/usr/local/bin/smolclaw-watchdog")
 _WATCHDOG_CRON = "*/10 * * * * /usr/local/bin/smolclaw-watchdog >> ~/.smolclaw/watchdog.log 2>&1"
 
 
-def _install_watchdog(workspace_home: Path) -> None:  # noqa: ARG001
+def _install_watchdog(workspace_home: Path) -> None:
     """Copy watchdog.sh to /usr/local/bin and add a system cron entry."""
     # Locate the bundled watchdog script (next to this file)
     watchdog_src = Path(__file__).parent / "watchdog.sh"
@@ -488,7 +485,7 @@ def _install_watchdog(workspace_home: Path) -> None:  # noqa: ARG001
 # ── Main Entry Point ──────────────────────────────────────────────────────────
 
 def run() -> None:
-    from . import workspace  # noqa: PLC0415
+    from . import workspace
 
     # ── Banner ────────────────────────────────────────────────────────────
     console.print(Panel(

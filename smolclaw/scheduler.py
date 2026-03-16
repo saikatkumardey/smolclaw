@@ -2,20 +2,18 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import threading
 
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from loguru import logger
 
-from .tools import TelegramSender
 from . import workspace
 from .auth import default_chat_id
+from .tools import TelegramSender
 
 _telegram = TelegramSender()
-
-from loguru import logger
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
 
