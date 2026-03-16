@@ -297,8 +297,11 @@ class TestOnUpdate:
         with patch("smolclaw.handlers._check_remote_version", return_value="0.5.0"):
             await on_update(update, ctx)
 
-        replies = [call[0][0] for call in update.message.reply_text.await_args_list]
-        assert any("already on latest" in r.lower() or "no update needed" in r.lower() for r in replies)
+        # One placeholder sent, then edited with the final status
+        placeholder = update.message.reply_text.return_value
+        placeholder.edit_text.assert_awaited()
+        edits = [call[0][0] for call in placeholder.edit_text.await_args_list]
+        assert any("already on latest" in e.lower() for e in edits)
 
     @pytest.mark.asyncio
     async def test_new_version_uses_clean_exit(self, monkeypatch):

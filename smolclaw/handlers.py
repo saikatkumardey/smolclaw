@@ -399,14 +399,20 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     old_version = _local_version()
     source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
 
-    await update.message.reply_text("Checking for updates…")
+    placeholder = await update.message.reply_text("Checking for updates…")
+
+    async def _edit(text: str) -> None:
+        try:
+            await placeholder.edit_text(text)
+        except Exception:
+            pass
 
     remote = await asyncio.to_thread(_check_remote_version, source)
     if remote and remote == old_version:
-        await update.message.reply_text(f"Already on latest version (v{old_version}). No update needed.")
+        await _edit(f"Already on latest (v{old_version}).")
         return
 
-    await update.message.reply_text("Update available — installing…")
+    await _edit("Update available — installing…")
     try:
         result = await asyncio.to_thread(
             _subprocess.run,
@@ -414,11 +420,11 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             capture_output=True, text=True, timeout=120,
         )
     except Exception as e:
-        await update.message.reply_text(f"Update failed: {e}")
+        await _edit(f"Update failed: {e}")
         return
 
     if result.returncode != 0:
-        await update.message.reply_text(f"Update failed:\n{result.stderr[:500]}")
+        await _edit(f"Update failed:\n{result.stderr[:500]}")
         return
 
     summary = await asyncio.to_thread(_get_update_summary, source, old_version)
@@ -428,7 +434,7 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.warning("Handover save failed: %s", e)
 
-    await update.message.reply_text(f"Updated. Restarting…\n\n{summary}")
+    await _edit(f"Updated. Restarting…\n\n{summary}")
 
     # Clean exit — let systemd (Restart=always) bring us back with the new binary.
     os.kill(os.getpid(), signal.SIGTERM)
