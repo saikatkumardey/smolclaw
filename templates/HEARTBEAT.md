@@ -27,6 +27,13 @@ Stay silent (reply `HEARTBEAT_OK` only) if:
 3. If something is worth saying, send one short message via `telegram_send`, then reply `HEARTBEAT_OK`
 4. If nothing is worth saying, reply `HEARTBEAT_OK` only
 
+## Important
+
+- Do NOT run bash commands or scripts during heartbeat unless absolutely necessary
+- Do NOT grep logs, check external services, or run multi-step investigations
+- If you spot something that needs investigation, note it for the subconscious or spawn_task — don't do it inline
+- The heartbeat should complete in under 30 seconds. Read files, decide, respond.
+
 ## Format
 
 Keep heartbeat messages short. One or two sentences. No preamble.
