@@ -124,11 +124,23 @@ def get_last_result(chat_id: str) -> ResultMessage | None:
 
 
 
+_TASK_EXPIRY_SECONDS = 3600  # prune completed tasks after 1 hour
+
+
 def list_tasks() -> list[dict]:
-    """Return summary of all tracked background tasks."""
+    """Return summary of all tracked background tasks, pruning stale completed ones."""
+    now = time.time()
+    # Prune completed tasks older than 1 hour
+    stale = [
+        tid for tid, info in _task_registry.items()
+        if info["task"].done() and (now - info["started_at"]) > _TASK_EXPIRY_SECONDS
+    ]
+    for tid in stale:
+        del _task_registry[tid]
+
     rows = []
     for tid, info in _task_registry.items():
-        elapsed = int(time.time() - info["started_at"])
+        elapsed = int(now - info["started_at"])
         rows.append({
             "id": tid,
             "status": "running" if not info["task"].done() else info.get("status", "done"),

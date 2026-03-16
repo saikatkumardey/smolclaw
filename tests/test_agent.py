@@ -249,3 +249,45 @@ async def test_spawn_task_passes_model_and_cwd_to_subagent(tmp_path, monkeypatch
         f"Sub-agent model should be {cfg.get('model')!r}, got {captured_opts.get('model')!r}"
     assert captured_opts.get("cwd") == str(tmp_path), \
         f"Sub-agent cwd should be {str(tmp_path)!r}, got {captured_opts.get('cwd')!r}"
+
+
+# ---------------------------------------------------------------------------
+# Task registry cleanup
+# ---------------------------------------------------------------------------
+
+def test_list_tasks_excludes_old_completed():
+    """Completed tasks older than 1 hour should be pruned from the registry."""
+    import time
+    import smolclaw.agent as ag
+
+    # Clear registry
+    ag._task_registry.clear()
+
+    # Add a done task from 2 hours ago
+    mock_task = MagicMock()
+    mock_task.done.return_value = True
+    ag._task_registry["old-done"] = {
+        "task": mock_task,
+        "description": "old task",
+        "started_at": time.time() - 7200,
+        "status": "done",
+    }
+
+    # Add a recent running task
+    mock_running = MagicMock()
+    mock_running.done.return_value = False
+    ag._task_registry["still-running"] = {
+        "task": mock_running,
+        "description": "active task",
+        "started_at": time.time() - 60,
+        "status": "running",
+    }
+
+    tasks = ag.list_tasks()
+    task_ids = [t["id"] for t in tasks]
+    assert "still-running" in task_ids
+    assert "old-done" not in task_ids
+
+    # Registry should have been pruned
+    assert "old-done" not in ag._task_registry
+    ag._task_registry.clear()

@@ -401,6 +401,39 @@ def test_runtime_invalid_cron_expression(tmp_path, monkeypatch):
     assert cron_checks[0].status == Status.FAIL
 
 
+def test_runtime_edge_tts_available(tmp_path, monkeypatch):
+    _patch_workspace(tmp_path, monkeypatch)
+    _make_healthy_workspace(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with patch("smolclaw.doctor.requests.get", side_effect=ConnectionError), \
+         patch("smolclaw.doctor.shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
+        results = _check_runtime()
+
+    tts_checks = [c for c in results if "edge-tts" in c.message.lower()]
+    assert len(tts_checks) == 1
+    assert tts_checks[0].status == Status.OK
+
+
+def test_runtime_edge_tts_missing(tmp_path, monkeypatch):
+    _patch_workspace(tmp_path, monkeypatch)
+    _make_healthy_workspace(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    def _selective_which(name):
+        if name in ("edge-tts", "ffmpeg"):
+            return None
+        return f"/usr/bin/{name}"
+
+    with patch("smolclaw.doctor.requests.get", side_effect=ConnectionError), \
+         patch("smolclaw.doctor.shutil.which", side_effect=_selective_which):
+        results = _check_runtime()
+
+    tts_checks = [c for c in results if "edge-tts" in c.message.lower() or "ffmpeg" in c.message.lower()]
+    assert len(tts_checks) >= 1
+    assert any(c.status == Status.WARN for c in tts_checks)
+
+
 # ---------------------------------------------------------------------------
 # State checks
 # ---------------------------------------------------------------------------

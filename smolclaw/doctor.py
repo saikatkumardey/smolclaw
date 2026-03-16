@@ -342,6 +342,23 @@ def _check_runtime() -> list[CheckResult]:
             "Run: playwright install chromium --with-deps",
         ))
 
+    # TTS dependencies (edge-tts + ffmpeg)
+    edge_tts = shutil.which("edge-tts")
+    ffmpeg = shutil.which("ffmpeg")
+    if edge_tts and ffmpeg:
+        results.append(CheckResult(Status.OK, "edge-tts and ffmpeg available (TTS ready)"))
+    else:
+        missing = []
+        if not edge_tts:
+            missing.append("edge-tts")
+        if not ffmpeg:
+            missing.append("ffmpeg")
+        results.append(CheckResult(
+            Status.WARN,
+            f"Missing {', '.join(missing)} — voice messages (telegram_send_voice) won't work",
+            "Install: pip install edge-tts && apt install ffmpeg",
+        ))
+
     # Cron expressions
     crons_path = workspace.CRONS
     if crons_path.exists() and crons_path.stat().st_size > 0:

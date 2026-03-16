@@ -6,8 +6,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import tool, create_sdk_mcp_server, SdkMcpTool
-from claude_agent_sdk.types import McpSdkServerConfig
+from claude_agent_sdk import tool, SdkMcpTool
 
 from loguru import logger
 
@@ -111,12 +110,3 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
     return tool_list
 
 
-def build_dynamic_mcp_server(tools_dir: Path | None = None) -> McpSdkServerConfig | None:
-    """
-    Load custom tools and wrap them into an in-process MCP server.
-    Returns None if no tools are found.
-    """
-    tools = load_custom_tools(tools_dir)
-    if not tools:
-        return None
-    return create_sdk_mcp_server(name="dynamic", version="1.0.0", tools=tools)
