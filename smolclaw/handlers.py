@@ -420,17 +420,16 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.reply_text("Usage: /btw <question>\nQuick side question — no tools, no history.")
         return
 
-    soul = workspace.read(workspace.SOUL)
-    soul_snippet = soul[:500] if soul else ""
-    system = f"Be concise and direct. Use Telegram Markdown v1 (*bold*, _italic_). No headers.\n\n{soul_snippet}"
-    model = get_current_model()
+    system = "Be concise and direct. Use Telegram Markdown v1 (*bold*, _italic_). No headers."
+    # Always use Haiku for /btw — it's meant to be fast
+    btw_model = "claude-haiku-4-5-20251001"
 
     try:
         async with _TypingLoop(context.bot, chat_id):
             result = await asyncio.to_thread(
                 _sp.run,
-                ["claude", "-p", "--model", model, "--append-system-prompt", system, text],
-                capture_output=True, text=True, timeout=30,
+                ["claude", "-p", "--model", btw_model, "--append-system-prompt", system, text],
+                capture_output=True, text=True, timeout=60,
             )
         reply = result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr[:300]}"
         btw_reply = f"_/btw_\n{reply}" if reply else "(no response)"
