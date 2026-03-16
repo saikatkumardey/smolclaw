@@ -265,6 +265,7 @@ def start(
         bot.add_handler(CommandHandler("reload", h.on_reload))
         bot.add_handler(CommandHandler("restart", h.on_restart))
         bot.add_handler(CommandHandler("update", h.on_update))
+        bot.add_handler(CommandHandler("btw", h.on_btw))
         bot.add_handler(CommandHandler("context", h.on_context))
         bot.add_handler(CommandHandler("effort", h.on_effort))
         bot.add_handler(CommandHandler("efforts", h.on_efforts))
@@ -293,6 +294,7 @@ def start(
                 BotCommand("reload",  "Reload skills and memory"),
                 BotCommand("restart", "Restart the bot process"),
                 BotCommand("update",  "Update smolclaw and restart"),
+                BotCommand("btw",     "Ask a side question (no history)"),
                 BotCommand("context", "Show context window usage"),
                 BotCommand("effort",  "Set thinking effort level"),
             ])

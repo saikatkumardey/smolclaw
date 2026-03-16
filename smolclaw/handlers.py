@@ -120,6 +120,7 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/reload — reload skills and memory\n"
         "/restart — restart the bot process\n"
         "/update — update smolclaw and restart\n"
+        "/btw — ask a side question (no conversation history)\n"
         "/context — show context window usage\n\n"
         "Or just talk to me."
     )
@@ -405,6 +406,32 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Clean exit — let systemd (Restart=always) bring us back with the new binary.
     os.kill(os.getpid(), signal.SIGTERM)
+
+
+@require_allowed
+async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /btw — one-off question without polluting conversation history."""
+    import uuid
+    msg = update.message
+    chat_id = str(update.effective_chat.id)
+    text = (msg.text or "").split(None, 1)[1] if len((msg.text or "").split(None, 1)) > 1 else ""
+    if not text.strip():
+        await msg.reply_text("Usage: /btw <question>\nAsk something without affecting your conversation history.")
+        return
+    ephemeral_id = f"btw:{chat_id}:{uuid.uuid4().hex[:8]}"
+    agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
+    try:
+        async with _TypingLoop(context.bot, chat_id):
+            reply = await agent_run(chat_id=ephemeral_id, user_message=agent_msg)
+        await _reply_chunked(msg, reply)
+    except Exception as e:
+        logger.exception("Error handling /btw: %s", e)
+        await msg.reply_text(_classify_error(e))
+    finally:
+        try:
+            await reset_session(ephemeral_id)
+        except Exception:
+            pass
 
 
 @require_allowed
