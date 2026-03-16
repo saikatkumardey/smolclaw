@@ -47,7 +47,10 @@ async def telegram_send(args: dict) -> dict:
 async def telegram_edit(args: dict) -> dict:
     if not is_allowed(args["chat_id"]):
         return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
-    message_id = int(args["message_id"])
+    try:
+        message_id = int(args["message_id"])
+    except (ValueError, TypeError):
+        return _text(f"Error: invalid message_id {args.get('message_id')!r}")
     text = await asyncio.to_thread(_edit_telegram, args["chat_id"], message_id, args["message"])
     return _text(text)
 
@@ -111,7 +114,9 @@ async def telegram_send_file(args: dict) -> dict:
     if not is_allowed(args["chat_id"]):
         return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
     resolved = Path(args["file_path"]).resolve()
-    if not str(resolved).startswith(str(workspace.HOME.resolve())):
+    try:
+        resolved.relative_to(workspace.HOME.resolve())
+    except ValueError:
         return _text(f"Error: file path {args['file_path']!r} is outside the workspace.")
     text = await asyncio.to_thread(_send_telegram_file, args["chat_id"], args["file_path"])
     return _text(text)

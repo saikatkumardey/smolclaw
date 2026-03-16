@@ -450,7 +450,9 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     system = "You are a helpful assistant. Be concise and direct. Use Telegram Markdown v1 formatting (*bold*, _italic_). No headers."
     btw_model = Config.load().get("btw_model")
 
+    placeholder = None
     try:
+        placeholder = await msg.reply_text("...")
         async with _TypingLoop(context.bot, chat_id):
             result = await asyncio.to_thread(
                 _sp.run,
@@ -464,10 +466,17 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         reply = result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr[:300]}"
         btw_reply = f"_/btw_\n{reply}" if reply else "(no response)"
-        await _reply_chunked(msg, btw_reply)
+        await _reply_chunked(msg, btw_reply, edit_message=placeholder)
     except Exception as e:
         logger.exception("Error handling /btw: %s", e)
-        await msg.reply_text(_classify_error(e))
+        error_msg = _classify_error(e)
+        if placeholder:
+            try:
+                await placeholder.edit_text(error_msg)
+            except Exception:
+                await msg.reply_text(error_msg)
+        else:
+            await msg.reply_text(error_msg)
 
 
 @require_allowed
@@ -477,6 +486,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     text = msg.text or ""
     is_edit = update.edited_message is not None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
+    placeholder = None
     try:
         # Send a placeholder that we'll edit with the final reply (avoids message spam)
         placeholder = await msg.reply_text("...")
@@ -486,15 +496,22 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
-        await _reply_chunked(msg, reply, edit_message=placeholder)
+        # Append context warning to reply instead of sending a separate message
         used, fill = _context_fill(chat_id)
         if fill >= CONTEXT_WARN_THRESHOLD:
             pct = fill * 100
-            warn = f"Context at {pct:.0f}% ({used:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens). Consider /reset soon."
-            await msg.reply_text(warn)
+            reply += f"\n\n⚠️ Context at {pct:.0f}% — consider /reset soon."
+        await _reply_chunked(msg, reply, edit_message=placeholder)
     except Exception as e:
         logger.exception("Error handling message: %s", e)
-        await msg.reply_text(_classify_error(e))
+        error_msg = _classify_error(e)
+        if placeholder:
+            try:
+                await placeholder.edit_text(error_msg)
+            except Exception:
+                await msg.reply_text(error_msg)
+        else:
+            await msg.reply_text(error_msg)
 
 
 @require_allowed
@@ -538,14 +555,28 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, agent_msg: str) -> None:
     """Shared handler for file/photo uploads: run agent and reply."""
     chat_id = str(update.effective_chat.id)
+    placeholder = None
     try:
         placeholder = await update.message.reply_text("...")
+        # Inject reply_id so the agent can edit the placeholder mid-turn
+        agent_msg = agent_msg.replace(
+            f"[chat_id={chat_id}",
+            f"[chat_id={chat_id} reply_id={placeholder.message_id}",
+            1,
+        )
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         await _reply_chunked(update.message, reply, edit_message=placeholder)
     except Exception as e:
         logger.exception("Error handling upload: %s", e)
-        await update.message.reply_text(_classify_error(e))
+        error_msg = _classify_error(e)
+        if placeholder:
+            try:
+                await placeholder.edit_text(error_msg)
+            except Exception:
+                await update.message.reply_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
 
 
 @require_allowed

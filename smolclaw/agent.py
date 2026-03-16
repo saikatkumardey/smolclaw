@@ -141,18 +141,23 @@ def get_last_result(chat_id: str) -> ResultMessage | None:
 
 
 _TASK_EXPIRY_SECONDS = 3600  # prune completed tasks after 1 hour
+_TASK_STUCK_SECONDS = 7200  # prune stuck (still running) tasks after 2 hours
 
 
 def list_tasks() -> list[dict]:
-    """Return summary of all tracked background tasks, pruning stale completed ones."""
+    """Return summary of all tracked background tasks, pruning stale ones."""
     now = time.time()
-    # Prune completed tasks older than 1 hour
+    # Prune completed tasks older than 1 hour, and stuck tasks older than 2 hours
     stale = [
         tid for tid, info in _task_registry.items()
-        if info["task"].done() and (now - info["started_at"]) > _TASK_EXPIRY_SECONDS
+        if (info["task"].done() and (now - info["started_at"]) > _TASK_EXPIRY_SECONDS)
+        or (not info["task"].done() and (now - info["started_at"]) > _TASK_STUCK_SECONDS)
     ]
     for tid in stale:
-        del _task_registry[tid]
+        info = _task_registry.pop(tid)
+        if not info["task"].done():
+            logger.warning("Pruning stuck task {} ({})", tid, info["description"])
+            info["task"].cancel()
 
     rows = []
     for tid, info in _task_registry.items():
@@ -169,11 +174,12 @@ def list_tasks() -> list[dict]:
 def session_log(chat_id: str, role: str, content: str | dict) -> None:
     """Append a line to today's session log. JSONL, one file per day."""
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc)
+        today = now.strftime("%Y-%m-%d")
         path = workspace.HOME / "sessions" / f"{today}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": now.isoformat(),
             "chat_id": chat_id,
             "role": role,
             "content": content,
@@ -407,8 +413,15 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
 def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     """Build ClaudeAgentOptions with full tool set."""
     cfg = Config.load()
-    spawn_task = _make_spawn_task_tool(chat_id, cfg)
-    smolclaw_tools = [*CUSTOM_TOOLS, spawn_task]
+    is_cron = chat_id.startswith("cron:")
+    # spawn_task uses asyncio.create_task() which is tied to the current event loop.
+    # Cron jobs run inside asyncio.run() — when that returns the loop closes, killing
+    # any background tasks silently. Don't expose spawn_task to cron agents.
+    if is_cron:
+        smolclaw_tools = [*CUSTOM_TOOLS]
+    else:
+        spawn_task = _make_spawn_task_tool(chat_id, cfg)
+        smolclaw_tools = [*CUSTOM_TOOLS, spawn_task]
     smolclaw_server = create_sdk_mcp_server(name="smolclaw", version="1.0.0", tools=smolclaw_tools)
 
     smolclaw_tool_names = [f"mcp__smolclaw__{t.name}" for t in smolclaw_tools]
@@ -425,7 +438,6 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         allowed.append("mcp__dynamic__*")
 
     # Cron jobs use a cheaper model and slimmer system prompt
-    is_cron = chat_id.startswith("cron:")
     model = cfg.get("model")
     if is_cron:
         model = cfg.get("cron_model") or model

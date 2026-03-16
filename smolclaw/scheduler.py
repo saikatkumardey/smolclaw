@@ -23,8 +23,10 @@ SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 _CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
 
 
-def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False) -> None:
+def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False, timeout: int | None = None) -> None:
     from .agent import run
+    if timeout is None:
+        timeout = _CRON_TIMEOUT_SECONDS
     logger.info("Cron: {}", job_id)
 
     result_holder: list[str] = []
@@ -38,12 +40,12 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False)
 
     t = threading.Thread(target=_thread_target, daemon=True)
     t.start()
-    t.join(timeout=_CRON_TIMEOUT_SECONDS)
+    t.join(timeout=timeout)
 
     if t.is_alive():
-        logger.error("Cron {} timed out after {}s — thread abandoned (daemon, will die on exit)", job_id, _CRON_TIMEOUT_SECONDS)
+        logger.error("Cron {} timed out after {}s — thread abandoned (daemon, will die on exit)", job_id, timeout)
         if deliver_to:
-            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' timed out after {_CRON_TIMEOUT_SECONDS}s.")
+            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' timed out after {timeout}s.")
         return
 
     if exc_holder:
@@ -175,6 +177,7 @@ def setup_scheduler() -> BackgroundScheduler:
             continue
         deliver_to = job.get("deliver_to") or default_chat_id()
         is_heartbeat = bool(job.get("heartbeat", False))
+        job_timeout = int(job.get("timeout", _CRON_TIMEOUT_SECONDS))
         try:
             scheduler.add_job(
                 _run_job,
@@ -184,6 +187,7 @@ def setup_scheduler() -> BackgroundScheduler:
                     "prompt": job["prompt"],
                     "deliver_to": deliver_to,
                     "heartbeat": is_heartbeat,
+                    "timeout": job_timeout,
                 },
                 id=job["id"],
                 replace_existing=True,

@@ -86,7 +86,9 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
     """
     try:
         path = Path(file_path).resolve()
-        if not str(path).startswith(str(workspace.HOME.resolve())):
+        try:
+            path.relative_to(workspace.HOME.resolve())
+        except ValueError:
             return f"Error: file path {file_path!r} is outside the workspace."
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         with open(path, "rb") as f, httpx.Client(timeout=30) as client:

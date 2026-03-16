@@ -137,8 +137,10 @@ class TestOnMessage:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
             await on_message(update, ctx)
         update.message.reply_text.assert_awaited()
-        # First call is "..." placeholder, second is the error fallback
-        args = update.message.reply_text.await_args_list[-1]
+        # Error edits the placeholder instead of sending a new message
+        placeholder = update.message.reply_text.return_value
+        placeholder.edit_text.assert_awaited()
+        args = placeholder.edit_text.await_args_list[-1]
         assert "wrong" in args[0][0].lower()
 
     @pytest.mark.asyncio
@@ -227,7 +229,8 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=TimeoutError()):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[-1][0][0]
+        placeholder = update.message.reply_text.return_value
+        msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "timed out" in msg.lower() or "timeout" in msg.lower()
 
     @pytest.mark.asyncio
@@ -238,7 +241,8 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=PermissionError("denied")):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[-1][0][0]
+        placeholder = update.message.reply_text.return_value
+        msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "permission" in msg.lower()
 
     @pytest.mark.asyncio
@@ -249,7 +253,8 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=ConnectionError("no network")):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[-1][0][0]
+        placeholder = update.message.reply_text.return_value
+        msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "connection" in msg.lower()
 
     @pytest.mark.asyncio
@@ -260,7 +265,8 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("wat")):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[-1][0][0]
+        placeholder = update.message.reply_text.return_value
+        msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "wrong" in msg.lower()
         assert "wat" not in msg  # should not leak internal error
 
