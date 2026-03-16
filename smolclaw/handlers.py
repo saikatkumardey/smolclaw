@@ -427,7 +427,12 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with _TypingLoop(context.bot, chat_id):
             result = await asyncio.to_thread(
                 _sp.run,
-                ["claude", "-p", "--model", btw_model, "--system-prompt", system],
+                [
+                    "claude", "-p",
+                    "--model", btw_model,
+                    "--system-prompt", system,
+                    "--allowedTools", "WebSearch", "WebFetch", "Read",
+                ],
                 input=text, capture_output=True, text=True, timeout=60,
             )
         reply = result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr[:300]}"
