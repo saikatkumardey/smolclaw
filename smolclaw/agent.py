@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
     TextBlock,
+    ToolUseBlock,
     query,
     create_sdk_mcp_server,
     tool,
@@ -451,11 +452,14 @@ async def run(chat_id: str, user_message: str) -> str:
     try:
         await client.query(timestamped_message)
         parts: list[str] = []
+        tool_names: list[str] = []
         async for msg in client.receive_response():
             if isinstance(msg, AssistantMessage):
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         parts.append(block.text)
+                    elif isinstance(block, ToolUseBlock):
+                        tool_names.append(block.name)
             elif isinstance(msg, ResultMessage):
                 _sessions[chat_id].last_result = msg
                 usage = msg.usage or {}
@@ -471,7 +475,12 @@ async def run(chat_id: str, user_message: str) -> str:
                     SessionState.load().record_turn(chat_id, msg)
                 except Exception as e:
                     logger.warning("SessionState.record_turn failed: {}", e)
-        reply = "\n".join(parts) or "(no response)"
+        if parts:
+            reply = "\n".join(parts)
+        elif tool_names:
+            reply = f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
+        else:
+            reply = "(no response)"
         # Clear handover only after successful processing
         session = _sessions[chat_id]
         if session.handover_pending:
