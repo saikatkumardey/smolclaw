@@ -454,6 +454,44 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 @require_allowed
+async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle message reactions — pass them to the agent as feedback."""
+    reaction = update.message_reaction
+    if not reaction:
+        return
+    chat_id = str(reaction.chat.id)
+
+    new = reaction.new_reaction or []
+    old = reaction.old_reaction or []
+
+    # Only care about new reactions (not removals)
+    added = [r for r in new if r not in old]
+    if not added:
+        return
+
+    emojis = []
+    for r in added:
+        if hasattr(r, "emoji"):
+            emojis.append(r.emoji)
+        elif hasattr(r, "custom_emoji_id"):
+            emojis.append(f"(custom:{r.custom_emoji_id})")
+
+    if not emojis:
+        return
+
+    emoji_str = " ".join(emojis)
+    agent_msg = f"[User reacted to a previous message with: {emoji_str}]"
+    logger.info("Reaction [%s]: %s", chat_id, emoji_str)
+    try:
+        async with _TypingLoop(context.bot, chat_id):
+            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
+        if reply and reply != "(no response)":
+            await context.bot.send_message(chat_id=chat_id, text=_to_telegram_md(reply), parse_mode="Markdown")
+    except Exception as e:
+        logger.exception("Error handling reaction: %s", e)
+
+
+@require_allowed
 async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle documents: download to uploads/, pass path to agent."""
     chat_id = str(update.effective_chat.id)

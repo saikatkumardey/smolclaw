@@ -245,7 +245,7 @@ def start(
         typer.echo("ALLOWED_USER_IDS is not set. Run `smolclaw setup` to configure your Telegram user ID.")
         raise typer.Exit(1)
 
-    from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+    from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, MessageReactionHandler, filters
     from .scheduler import setup_scheduler
     from . import handlers as h
 
@@ -274,6 +274,7 @@ def start(
         bot.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE & filters.TEXT & ~filters.COMMAND, h.on_message))
         bot.add_handler(MessageHandler(filters.PHOTO, h.on_photo))
         bot.add_handler(MessageHandler(filters.Document.ALL, h.on_document))
+        bot.add_handler(MessageReactionHandler(h.on_reaction))
 
         scheduler = setup_scheduler()
 
