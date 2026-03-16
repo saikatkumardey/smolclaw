@@ -26,7 +26,8 @@ def _mock_httpx_client(ok=True, text="Unauthorized"):
 def test_telegram_sender_success():
     from smolclaw.tools import TelegramSender
     with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=True)):
-        assert TelegramSender().send(chat_id="123", message="hi") == "Sent."
+        result = TelegramSender().send(chat_id="123", message="hi")
+        assert result.startswith("Sent.")
 
 
 def test_telegram_sender_failure():
@@ -50,7 +51,7 @@ def test_telegram_send_sdk_success(monkeypatch):
     from smolclaw.tools_sdk import telegram_send
     with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=True)):
         result = asyncio.run(telegram_send.handler({"chat_id": "123", "message": "hi"}))
-    assert result["content"][0]["text"] == "Sent."
+    assert result["content"][0]["text"].startswith("Sent.")
 
 
 def test_telegram_send_sdk_failure(monkeypatch):

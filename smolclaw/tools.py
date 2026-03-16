@@ -12,7 +12,7 @@ MAX_TG_MSG = 4000
 
 
 def _send_telegram(chat_id: str, message: str) -> str:
-    """Send a Telegram message. Returns 'Sent.' or an error string.
+    """Send a Telegram message. Returns 'Sent. [message_id=N]' or an error string.
 
     Uses httpx (sync) instead of requests so the function is safe to call via
     asyncio.to_thread() from async callers without pulling in two HTTP stacks.
@@ -20,6 +20,7 @@ def _send_telegram(chat_id: str, message: str) -> str:
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         chunks = [message[i:i + MAX_TG_MSG] for i in range(0, len(message), MAX_TG_MSG)]
+        last_message_id = None
         with httpx.Client(timeout=10) as client:
             for chunk in chunks:
                 r = client.post(
@@ -27,8 +28,52 @@ def _send_telegram(chat_id: str, message: str) -> str:
                     json={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"},
                 )
                 if not r.is_success:
-                    return f"Failed: {r.text}"
+                    # Retry without Markdown if parse fails
+                    r = client.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        json={"chat_id": chat_id, "text": chunk},
+                    )
+                    if not r.is_success:
+                        return f"Failed: {r.text}"
+                try:
+                    last_message_id = r.json().get("result", {}).get("message_id")
+                except Exception:
+                    pass
+        if last_message_id:
+            return f"Sent. [message_id={last_message_id}]"
         return "Sent."
+    except Exception as e:
+        return f"Error: {e}"
+
+
+def _edit_telegram(chat_id: str, message_id: int, message: str) -> str:
+    """Edit an existing Telegram message. Returns 'Edited.' or an error string."""
+    try:
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        text = message[:MAX_TG_MSG]
+        with httpx.Client(timeout=10) as client:
+            r = client.post(
+                f"https://api.telegram.org/bot{token}/editMessageText",
+                json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                },
+            )
+            if not r.is_success:
+                # Retry without Markdown
+                r = client.post(
+                    f"https://api.telegram.org/bot{token}/editMessageText",
+                    json={
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": text,
+                    },
+                )
+                if not r.is_success:
+                    return f"Failed: {r.text}"
+        return "Edited."
     except Exception as e:
         return f"Error: {e}"
 

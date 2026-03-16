@@ -93,7 +93,11 @@ def _make_update(chat_id="123", text="hi"):
     update.effective_chat.id = int(chat_id)
     update.edited_message = None
     update.message.text = text
-    update.message.reply_text = AsyncMock()
+    # reply_text returns a placeholder message with edit_text for inline editing
+    placeholder = MagicMock()
+    placeholder.edit_text = AsyncMock()
+    placeholder.message_id = 99
+    update.message.reply_text = AsyncMock(return_value=placeholder)
     update.message.message_id = 42
     return update
 
@@ -116,9 +120,12 @@ class TestOnMessage:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Reply!"):
             await on_message(update, ctx)
+        # First reply_text sends "..." placeholder
         update.message.reply_text.assert_awaited()
-        # Should contain the reply text
-        args = update.message.reply_text.await_args_list[0]
+        # Final reply edits the placeholder in place
+        placeholder = update.message.reply_text.return_value
+        placeholder.edit_text.assert_awaited()
+        args = placeholder.edit_text.await_args_list[0]
         assert "Reply!" in args[0][0]
 
     @pytest.mark.asyncio
@@ -130,7 +137,8 @@ class TestOnMessage:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
             await on_message(update, ctx)
         update.message.reply_text.assert_awaited()
-        args = update.message.reply_text.await_args_list[0]
+        # First call is "..." placeholder, second is the error fallback
+        args = update.message.reply_text.await_args_list[-1]
         assert "wrong" in args[0][0].lower()
 
     @pytest.mark.asyncio
@@ -219,7 +227,7 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=TimeoutError()):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[0][0][0]
+        msg = update.message.reply_text.await_args_list[-1][0][0]
         assert "timed out" in msg.lower() or "timeout" in msg.lower()
 
     @pytest.mark.asyncio
@@ -230,7 +238,7 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=PermissionError("denied")):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[0][0][0]
+        msg = update.message.reply_text.await_args_list[-1][0][0]
         assert "permission" in msg.lower()
 
     @pytest.mark.asyncio
@@ -241,7 +249,7 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=ConnectionError("no network")):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[0][0][0]
+        msg = update.message.reply_text.await_args_list[-1][0][0]
         assert "connection" in msg.lower()
 
     @pytest.mark.asyncio
@@ -252,7 +260,7 @@ class TestErrorClassification:
         ctx = _make_context()
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("wat")):
             await on_message(update, ctx)
-        msg = update.message.reply_text.await_args_list[0][0][0]
+        msg = update.message.reply_text.await_args_list[-1][0][0]
         assert "wrong" in msg.lower()
         assert "wat" not in msg  # should not leak internal error
 

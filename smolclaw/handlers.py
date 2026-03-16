@@ -90,15 +90,32 @@ class _TypingLoop:
 
 
 
-async def _reply_chunked(message, text: str) -> None:
-    """Send text in ≤MAX_TG_MSG-char chunks with Markdown, falling back to plain text."""
+async def _reply_chunked(message, text: str, edit_message=None) -> None:
+    """Send text in ≤MAX_TG_MSG-char chunks with Markdown, falling back to plain text.
+
+    If edit_message is provided, the first chunk edits that message instead of
+    sending a new one (reduces message spam).
+    """
     formatted = _to_telegram_md(text)
-    for i in range(0, max(len(formatted), 1), MAX_TG_MSG):
-        chunk = formatted[i : i + MAX_TG_MSG]
-        try:
-            await message.reply_text(chunk, parse_mode="Markdown")
-        except Exception:
-            await message.reply_text(chunk)
+    chunks = [formatted[i : i + MAX_TG_MSG] for i in range(0, max(len(formatted), 1), MAX_TG_MSG)]
+    for idx, chunk in enumerate(chunks):
+        if idx == 0 and edit_message is not None:
+            try:
+                await edit_message.edit_text(chunk, parse_mode="Markdown")
+            except Exception:
+                try:
+                    await edit_message.edit_text(chunk)
+                except Exception:
+                    # Edit failed (message too old, deleted, etc.) — fall back to reply
+                    try:
+                        await message.reply_text(chunk, parse_mode="Markdown")
+                    except Exception:
+                        await message.reply_text(chunk)
+        else:
+            try:
+                await message.reply_text(chunk, parse_mode="Markdown")
+            except Exception:
+                await message.reply_text(chunk)
 
 
 @require_allowed
@@ -461,11 +478,15 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     is_edit = update.edited_message is not None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
     try:
-        agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
+        # Send a placeholder that we'll edit with the final reply (avoids message spam)
+        placeholder = await msg.reply_text("...")
+        agent_msg = (
+            f"[chat_id={chat_id} message_id={msg.message_id} reply_id={placeholder.message_id}]\n{text}"
+        )
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         logger.info("Reply [%s]: %s", chat_id, reply[:80])
-        await _reply_chunked(msg, reply)
+        await _reply_chunked(msg, reply, edit_message=placeholder)
         used, fill = _context_fill(chat_id)
         if fill >= CONTEXT_WARN_THRESHOLD:
             pct = fill * 100
@@ -518,9 +539,10 @@ async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, age
     """Shared handler for file/photo uploads: run agent and reply."""
     chat_id = str(update.effective_chat.id)
     try:
+        placeholder = await update.message.reply_text("...")
         async with _TypingLoop(context.bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        await _reply_chunked(update.message, reply)
+        await _reply_chunked(update.message, reply, edit_message=placeholder)
     except Exception as e:
         logger.exception("Error handling upload: %s", e)
         await update.message.reply_text(_classify_error(e))

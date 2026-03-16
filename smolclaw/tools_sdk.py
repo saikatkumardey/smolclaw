@@ -12,7 +12,7 @@ from claude_agent_sdk import tool
 
 from . import workspace
 from .auth import default_chat_id, is_allowed
-from .tools import _send_telegram, _send_telegram_file, _send_telegram_voice, _set_reaction, _text_to_voice
+from .tools import _edit_telegram, _send_telegram, _send_telegram_file, _send_telegram_voice, _set_reaction, _text_to_voice
 from .version import check_remote_version as _check_remote_version
 from .version import get_update_summary as _get_update_summary
 from .version import local_version as _local_version
@@ -25,11 +25,30 @@ def _text(t: str) -> dict:
     return {"content": [{"type": "text", "text": t}]}
 
 
-@tool("telegram_send", "Send a Telegram message to a chat_id. For cron delivery.", {"chat_id": str, "message": str})
+@tool(
+    "telegram_send",
+    "Send a new Telegram message. Returns the message_id so you can edit it later with telegram_edit. "
+    "Prefer sending one message and editing it over sending multiple messages.",
+    {"chat_id": str, "message": str},
+)
 async def telegram_send(args: dict) -> dict:
     if not is_allowed(args["chat_id"]):
         return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
     text = await asyncio.to_thread(_send_telegram, args["chat_id"], args["message"])
+    return _text(text)
+
+
+@tool(
+    "telegram_edit",
+    "Edit an existing Telegram message by message_id. Use this to update a previous message "
+    "instead of sending a new one. Ideal for progress updates or refining a response.",
+    {"chat_id": str, "message_id": str, "message": str},
+)
+async def telegram_edit(args: dict) -> dict:
+    if not is_allowed(args["chat_id"]):
+        return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
+    message_id = int(args["message_id"])
+    text = await asyncio.to_thread(_edit_telegram, args["chat_id"], message_id, args["message"])
     return _text(text)
 
 
@@ -467,7 +486,7 @@ async def reflect(args: dict) -> dict:
 
 
 CUSTOM_TOOLS = [
-    telegram_send, telegram_send_file, save_handover, self_restart, self_update,
+    telegram_send, telegram_edit, telegram_send_file, save_handover, self_restart, self_update,
     update_config, read_skill_tool, search_sessions,
     browse, browser_click, browser_type, browser_screenshot, browser_eval,
     telegram_send_voice, telegram_react,
