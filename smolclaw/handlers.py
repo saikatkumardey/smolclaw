@@ -408,30 +408,60 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
+async def _btw_query(question: str, soul_snippet: str) -> str:
+    """Lightweight direct API call for /btw — no SDK, no tools, no session."""
+    import httpx
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        return "No ANTHROPIC_API_KEY set — /btw requires an API key."
+
+    model = get_current_model()
+    system = f"You are a helpful assistant. Be concise and direct.\n\n{soul_snippet}"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": model,
+                "max_tokens": 1024,
+                "system": system,
+                "messages": [{"role": "user", "content": question}],
+            },
+        )
+        if resp.status_code != 200:
+            return f"API error ({resp.status_code}): {resp.text[:200]}"
+        data = resp.json()
+        blocks = data.get("content", [])
+        return "".join(b.get("text", "") for b in blocks if b.get("type") == "text") or "(no response)"
+
+
 @require_allowed
 async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /btw — one-off question without polluting conversation history."""
-    import uuid
+    """Handle /btw — quick side question via direct API call, no session."""
     msg = update.message
     chat_id = str(update.effective_chat.id)
     text = (msg.text or "").split(None, 1)[1] if len((msg.text or "").split(None, 1)) > 1 else ""
     if not text.strip():
-        await msg.reply_text("Usage: /btw <question>\nAsk something without affecting your conversation history.")
+        await msg.reply_text("Usage: /btw <question>\nQuick side question — no tools, no history.")
         return
-    ephemeral_id = f"btw:{chat_id}:{uuid.uuid4().hex[:8]}"
-    agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
+
+    # Grab just the identity section from SOUL.md for personality
+    soul = workspace.read(workspace.SOUL)
+    soul_snippet = soul[:500] if soul else ""
+
     try:
         async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=ephemeral_id, user_message=agent_msg)
+            reply = await _btw_query(text, soul_snippet)
         await _reply_chunked(msg, reply)
     except Exception as e:
         logger.exception("Error handling /btw: %s", e)
         await msg.reply_text(_classify_error(e))
-    finally:
-        try:
-            await reset_session(ephemeral_id)
-        except Exception:
-            pass
 
 
 @require_allowed
