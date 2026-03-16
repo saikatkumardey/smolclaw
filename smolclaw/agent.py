@@ -461,8 +461,14 @@ async def run(chat_id: str, user_message: str) -> str:
     # racing on the same ClaudeSDKClient (which splits the anyio message stream
     # between consumers, causing "(no response)").
     async with lock:
-        # Check if client needs creation or replacement
+        # Cron jobs run in asyncio.run() (fresh event loop per call), so any
+        # cached session from a previous run has a dead transport. Always start
+        # fresh for cron chat_ids.
         existing = _sessions.get(chat_id)
+        if existing is not None and chat_id.startswith("cron:"):
+            _sessions.pop(chat_id, None)
+            existing = None
+
         if existing is not None and existing.dynamic_tool_names != current_tool_names:
             logger.info("Dynamic tools changed for {}; resetting client", chat_id)
             await reset_session(chat_id)
