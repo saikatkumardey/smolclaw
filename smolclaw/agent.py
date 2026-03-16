@@ -98,9 +98,13 @@ _session_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 async def reset_session(chat_id: str) -> None:
     """Disconnect and remove the cached session for chat_id."""
-    if session := _sessions.pop(chat_id, None):
-        await session.client.disconnect()
-    # Clean up browser context if one exists
+    session = _sessions.pop(chat_id, None)
+    if session:
+        try:
+            await session.client.disconnect()
+        except Exception as e:
+            logger.warning("Failed to disconnect session for {}: {}", chat_id, e)
+    # Always clean up browser context, even if disconnect failed
     try:
         from .browser import BrowserManager
         await BrowserManager.get().close_session(chat_id)
@@ -490,8 +494,8 @@ async def run(chat_id: str, user_message: str) -> str:
         else:
             reply = "(no response)"
     except Exception as e:
-        logger.exception("Agent error: {}", e)
-        reply = "Something went wrong. Please try again."
+        logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
+        reply = f"Something went wrong ({type(e).__name__}). Please try again."
     finally:
         # Always clear handover after first turn — even on error, the handover
         # has been injected into the system prompt and shouldn't persist.
@@ -503,16 +507,18 @@ async def run(chat_id: str, user_message: str) -> str:
     session_log(chat_id, "assistant", reply)
 
     # Auto-rotate: if context is filling up, save handover and reset for next message
+    # Must hold the lock to prevent concurrent messages from racing with rotation.
     try:
-        session = _sessions.get(chat_id)
-        if session and session.last_result:
-            fill = _context_fill_from_result(session.last_result)
-            if fill >= _AUTO_ROTATE_THRESHOLD:
-                logger.info("Auto-rotating session {} (context at {:.0%})", chat_id, fill)
-                handover_text = _build_auto_handover(chat_id)
-                if handover_text:
-                    handover_save(handover_text)
-                await reset_session(chat_id)
+        async with _session_locks[chat_id]:
+            session = _sessions.get(chat_id)
+            if session and session.last_result:
+                fill = _context_fill_from_result(session.last_result)
+                if fill >= _AUTO_ROTATE_THRESHOLD:
+                    logger.info("Auto-rotating session {} (context at {:.0%})", chat_id, fill)
+                    handover_text = _build_auto_handover(chat_id)
+                    if handover_text:
+                        handover_save(handover_text)
+                    await reset_session(chat_id)
     except Exception as e:
         logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
         _sessions.pop(chat_id, None)

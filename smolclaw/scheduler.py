@@ -85,11 +85,11 @@ def _run_subconscious() -> None:
                 size = f.stat().st_size
                 if size == 0:
                     continue
-                with open(f) as fh:
+                with open(f, "rb") as fh:
                     if size > tail_bytes:
                         fh.seek(size - tail_bytes)
                         fh.readline()  # skip partial first line
-                    log_parts.append(fh.read())
+                    log_parts.append(fh.read().decode("utf-8", errors="replace"))
             except Exception:
                 continue
         recent_logs = "\n".join(log_parts)[:8000]
@@ -98,6 +98,22 @@ def _run_subconscious() -> None:
     prompt = subconscious.build_prompt(threads, recent_logs, memory)
     deliver_to = default_chat_id()
     _run_job("subconscious", prompt, deliver_to, heartbeat=False)
+
+
+def _cleanup_stale_files() -> None:
+    """Delete screenshots and uploads older than 7 days."""
+    import time
+    cutoff = time.time() - 7 * 86400
+    for dirname in ("screenshots", "uploads"):
+        d = workspace.HOME / dirname
+        if not d.is_dir():
+            continue
+        for f in d.iterdir():
+            try:
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink()
+            except Exception:
+                continue
 
 
 def _cleanup_idle_browsers() -> None:
@@ -120,6 +136,14 @@ def setup_scheduler() -> BackgroundScheduler:
         _cleanup_idle_browsers,
         IntervalTrigger(minutes=5),
         id="_browser_cleanup",
+        replace_existing=True,
+    )
+
+    # Clean up stale screenshots and uploads (daily)
+    scheduler.add_job(
+        _cleanup_stale_files,
+        IntervalTrigger(hours=24),
+        id="_file_cleanup",
         replace_existing=True,
     )
 

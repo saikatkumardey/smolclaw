@@ -5,10 +5,13 @@ from datetime import datetime, timezone
 
 from . import workspace
 
+_MAX_HANDOVER_CHARS = 4000
+
 
 def save(summary: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    workspace.HANDOVER.write_text(f"# Handover — {ts}\n\n{summary.strip()}\n")
+    trimmed = summary.strip()[:_MAX_HANDOVER_CHARS]
+    workspace.HANDOVER.write_text(f"# Handover — {ts}\n\n{trimmed}\n")
 
 
 def load() -> str:
