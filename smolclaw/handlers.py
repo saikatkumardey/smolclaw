@@ -100,6 +100,24 @@ class _TypingLoop:
 
 
 
+async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
+    """Send/edit with Markdown, falling back to plain text on failure."""
+    fn = target.edit_text if edit else target.reply_text
+    try:
+        await fn(text, parse_mode="Markdown")
+    except Exception:
+        await fn(text)
+
+
+async def _send_md(bot, chat_id: str, text: str) -> None:
+    """Send a message via bot with Markdown, falling back to plain text."""
+    fmt = _to_telegram_md(text)
+    try:
+        await bot.send_message(chat_id=chat_id, text=fmt, parse_mode="Markdown")
+    except Exception:
+        await bot.send_message(chat_id=chat_id, text=fmt)
+
+
 async def _reply_chunked(message, text: str, edit_message=None) -> None:
     """Send text in ≤MAX_TG_MSG-char chunks with Markdown, falling back to plain text.
 
@@ -111,21 +129,56 @@ async def _reply_chunked(message, text: str, edit_message=None) -> None:
     for idx, chunk in enumerate(chunks):
         if idx == 0 and edit_message is not None:
             try:
-                await edit_message.edit_text(chunk, parse_mode="Markdown")
+                await _send_md_msg(edit_message, chunk, edit=True)
             except Exception:
-                try:
-                    await edit_message.edit_text(chunk)
-                except Exception:
-                    # Edit failed (message too old, deleted, etc.) — fall back to reply
-                    try:
-                        await message.reply_text(chunk, parse_mode="Markdown")
-                    except Exception:
-                        await message.reply_text(chunk)
+                # Edit failed (message too old, deleted, etc.) — fall back to reply
+                await _send_md_msg(message, chunk)
         else:
+            await _send_md_msg(message, chunk)
+
+
+async def _run_agent_and_reply(
+    bot, message, chat_id: str, agent_msg: str,
+    *, use_placeholder: bool = True, context_warn: bool = False,
+) -> None:
+    """Run agent and send reply. Shared by on_message, on_reaction, _handle_upload."""
+    placeholder = None
+    try:
+        if use_placeholder:
+            placeholder = await message.reply_text("...")
+            if f"[chat_id={chat_id}" in agent_msg and "reply_id=" not in agent_msg:
+                agent_msg = agent_msg.replace(
+                    f"[chat_id={chat_id}",
+                    f"[chat_id={chat_id} reply_id={placeholder.message_id}",
+                    1,
+                )
+        async with _TypingLoop(bot, chat_id):
+            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
+        if not reply or _is_tool_noise(reply):
+            if placeholder:
+                try:
+                    await placeholder.delete()
+                except Exception:
+                    pass
+            return
+        if context_warn:
+            used, fill = _context_fill(chat_id)
+            if fill >= CONTEXT_WARN_THRESHOLD:
+                reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
+        if placeholder:
+            await _reply_chunked(message, reply, edit_message=placeholder)
+        else:
+            await _send_md(bot, chat_id, reply)
+    except Exception as e:
+        logger.exception("Error: %s", e)
+        error_msg = _classify_error(e)
+        if placeholder:
             try:
-                await message.reply_text(chunk, parse_mode="Markdown")
+                await placeholder.edit_text(error_msg)
             except Exception:
-                await message.reply_text(chunk)
+                await message.reply_text(error_msg)
+        elif message:
+            await message.reply_text(error_msg)
 
 
 @require_allowed
@@ -322,39 +375,24 @@ async def on_models(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def _handle_selection_callback(
-    update: Update,
-    prefix: str,
-    choices: list[tuple[str, str]],
-    apply_fn,
-    success_msg: str,
-) -> None:
-    """Shared logic for model/effort inline keyboard callbacks."""
+async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     from .auth import is_allowed
     cb = update.callback_query
     await cb.answer()
-    if not (cb.data or "").startswith(prefix):
+    if not (cb.data or "").startswith("model:"):
         return
     if not is_allowed(update.effective_chat.id):
         await cb.edit_message_text("Not authorised.")
         return
-    selected = cb.data[len(prefix):]
-    valid = {cid for cid, _ in choices}
-    if selected not in valid:
-        await cb.edit_message_text(f"Unknown {prefix.rstrip(':')}.")
+    selected = cb.data[len("model:"):]
+    if selected not in {mid for mid, _ in AVAILABLE_MODELS}:
+        await cb.edit_message_text("Unknown model.")
         return
-    await apply_fn(selected)
-    label = next(lbl for cid, lbl in choices if cid == selected)
+    await set_model(selected)
+    label = next(lbl for mid, lbl in AVAILABLE_MODELS if mid == selected)
     await cb.edit_message_text(
-        success_msg.format(label=label, id=selected),
+        f"✓ Switched to *{label}*\n`{selected}`\n\nAll sessions reset — next message uses the new model.",
         parse_mode="Markdown",
-    )
-
-
-async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await _handle_selection_callback(
-        update, "model:", AVAILABLE_MODELS, set_model,
-        "✓ Switched to *{label}*\n`{id}`\n\nAll sessions reset — next message uses the new model.",
     )
 
 
@@ -380,9 +418,23 @@ async def on_efforts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await _handle_selection_callback(
-        update, "effort:", AVAILABLE_EFFORTS, set_effort,
-        "✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
+    from .auth import is_allowed
+    cb = update.callback_query
+    await cb.answer()
+    if not (cb.data or "").startswith("effort:"):
+        return
+    if not is_allowed(update.effective_chat.id):
+        await cb.edit_message_text("Not authorised.")
+        return
+    selected = cb.data[len("effort:"):]
+    if selected not in {eid for eid, _ in AVAILABLE_EFFORTS}:
+        await cb.edit_message_text("Unknown effort.")
+        return
+    await set_effort(selected)
+    label = next(lbl for eid, lbl in AVAILABLE_EFFORTS if eid == selected)
+    await cb.edit_message_text(
+        f"✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
+        parse_mode="Markdown",
     )
 
 
@@ -502,39 +554,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     text = msg.text or ""
     is_edit = update.edited_message is not None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
-    placeholder = None
-    try:
-        # Send a placeholder that we'll edit with the final reply (avoids message spam)
-        placeholder = await msg.reply_text("...")
-        agent_msg = (
-            f"[chat_id={chat_id} message_id={msg.message_id} reply_id={placeholder.message_id}]\n{text}"
-        )
-        async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        logger.info("Reply [%s]: %s", chat_id, reply[:80])
-        if _is_tool_noise(reply):
-            # Agent only called tools with no text output — silently delete the placeholder
-            try:
-                await placeholder.delete()
-            except Exception:
-                pass
-        else:
-            # Append context warning to reply instead of sending a separate message
-            used, fill = _context_fill(chat_id)
-            if fill >= CONTEXT_WARN_THRESHOLD:
-                pct = fill * 100
-                reply += f"\n\n⚠️ Context at {pct:.0f}% — consider /reset soon."
-            await _reply_chunked(msg, reply, edit_message=placeholder)
-    except Exception as e:
-        logger.exception("Error handling message: %s", e)
-        error_msg = _classify_error(e)
-        if placeholder:
-            try:
-                await placeholder.edit_text(error_msg)
-            except Exception:
-                await msg.reply_text(error_msg)
-        else:
-            await msg.reply_text(error_msg)
+    agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
+    await _run_agent_and_reply(context.bot, msg, chat_id, agent_msg, context_warn=True)
 
 
 @require_allowed
@@ -566,50 +587,13 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     emoji_str = " ".join(emojis)
     agent_msg = f"[User reacted to a previous message with: {emoji_str}]"
     logger.info("Reaction [%s]: %s", chat_id, emoji_str)
-    try:
-        async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        if reply and not _is_tool_noise(reply):
-            text = _to_telegram_md(reply)
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
-            except Exception:
-                await context.bot.send_message(chat_id=chat_id, text=text)
-    except Exception as e:
-        logger.exception("Error handling reaction: %s", e)
+    await _run_agent_and_reply(context.bot, None, chat_id, agent_msg, use_placeholder=False)
 
 
 async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, agent_msg: str) -> None:
     """Shared handler for file/photo uploads: run agent and reply."""
     chat_id = str(update.effective_chat.id)
-    placeholder = None
-    try:
-        placeholder = await update.message.reply_text("...")
-        # Inject reply_id so the agent can edit the placeholder mid-turn
-        agent_msg = agent_msg.replace(
-            f"[chat_id={chat_id}",
-            f"[chat_id={chat_id} reply_id={placeholder.message_id}",
-            1,
-        )
-        async with _TypingLoop(context.bot, chat_id):
-            reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
-        if _is_tool_noise(reply):
-            try:
-                await placeholder.delete()
-            except Exception:
-                pass
-        else:
-            await _reply_chunked(update.message, reply, edit_message=placeholder)
-    except Exception as e:
-        logger.exception("Error handling upload: %s", e)
-        error_msg = _classify_error(e)
-        if placeholder:
-            try:
-                await placeholder.edit_text(error_msg)
-            except Exception:
-                await update.message.reply_text(error_msg)
-        else:
-            await update.message.reply_text(error_msg)
+    await _run_agent_and_reply(context.bot, update.message, chat_id, agent_msg)
 
 
 @require_allowed

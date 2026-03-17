@@ -173,6 +173,66 @@ def doctor() -> None:
     raise typer.Exit(run())
 
 
+def _preflight_checks() -> bool:
+    """Check required config before starting the bot. Returns False and prints error on failure."""
+    from . import workspace
+    env_path = workspace.HOME / ".env"
+    if not env_path.exists():
+        typer.echo("No .env found. Run `smolclaw setup` first.")
+        return False
+    if not os.getenv("TELEGRAM_BOT_TOKEN", ""):
+        typer.echo("No Telegram bot token. Run `smolclaw setup` to configure.")
+        return False
+    if not os.getenv("ALLOWED_USER_IDS", "").strip():
+        typer.echo("ALLOWED_USER_IDS is not set. Run `smolclaw setup` to configure your Telegram user ID.")
+        return False
+    return True
+
+
+async def _post_init(app, scheduler, commands) -> None:
+    from telegram import BotCommand
+    await app.bot.set_my_commands([BotCommand(name, desc) for name, _, desc in commands if desc is not None])
+    scheduler.start()
+    from .auth import default_chat_id
+    default_chat = default_chat_id()
+    if default_chat:
+        from .handover import exists as handover_exists
+        from .handover import load as handover_load
+        from .version import local_version
+        ver = local_version()
+        parts = [f"Back online. v{ver}"]
+        if handover_exists():
+            handover = handover_load()
+            for line in handover.splitlines():
+                if "->" in line and any(c.isdigit() for c in line):
+                    parts.append(line.strip())
+                    break
+            parts.append("Handover loaded — picking up where I left off.")
+        try:
+            await app.bot.send_message(chat_id=default_chat, text="\n".join(parts))
+        except Exception:
+            pass
+
+
+async def _post_shutdown(app, scheduler) -> None:
+    from loguru import logger
+    logger.info("Shutdown: saving handover...")
+    try:
+        from .handover import save
+        save("Process shutting down. No pending tasks.")
+    except Exception:
+        pass
+    try:
+        from .browser import BrowserManager
+        await BrowserManager.get().close_all()
+    except Exception:
+        pass
+    scheduler.shutdown(wait=False)
+    from .daemon import delete_pid
+    delete_pid()
+    logger.info("SmolClaw stopped.")
+
+
 @app.command()
 def start(
     foreground: bool = typer.Option(False, "--foreground", "-f", help="Run in foreground (blocking)."),
@@ -250,19 +310,10 @@ def start(
     # ---------------------------------------------------------------------------
     # Pre-flight checks
     # ---------------------------------------------------------------------------
-    env_path = workspace.HOME / ".env"
-    if not env_path.exists():
-        typer.echo("No .env found. Run `smolclaw setup` first.")
+    if not _preflight_checks():
         raise typer.Exit(1)
 
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    if not token:
-        typer.echo("No Telegram bot token. Run `smolclaw setup` to configure.")
-        raise typer.Exit(1)
-
-    if not os.getenv("ALLOWED_USER_IDS", "").strip():
-        typer.echo("ALLOWED_USER_IDS is not set. Run `smolclaw setup` to configure your Telegram user ID.")
-        raise typer.Exit(1)
 
     from telegram.ext import (
         ApplicationBuilder,
@@ -281,22 +332,27 @@ def start(
     # ---------------------------------------------------------------------------
     try:
         bot = ApplicationBuilder().token(token).concurrent_updates(True).build()
-        bot.add_handler(CommandHandler("start", h.on_start))
-        bot.add_handler(CommandHandler("help", h.on_help))
-        bot.add_handler(CommandHandler("status", h.on_status))
-        bot.add_handler(CommandHandler("model", h.on_model))
-        bot.add_handler(CommandHandler("models", h.on_models))
-        bot.add_handler(CommandHandler("reset", h.on_reset))
-        bot.add_handler(CommandHandler("cancel", h.on_cancel))
-        bot.add_handler(CommandHandler("tasks", h.on_tasks))
-        bot.add_handler(CommandHandler("crons", h.on_crons))
-        bot.add_handler(CommandHandler("reload", h.on_reload))
-        bot.add_handler(CommandHandler("restart", h.on_restart))
-        bot.add_handler(CommandHandler("update", h.on_update))
-        bot.add_handler(CommandHandler("btw", h.on_btw))
-        bot.add_handler(CommandHandler("context", h.on_context))
-        bot.add_handler(CommandHandler("effort", h.on_effort))
-        bot.add_handler(CommandHandler("efforts", h.on_efforts))
+
+        _COMMANDS = [
+            ("start",   h.on_start,   "Wake the bot"),
+            ("help",    h.on_help,    "Show available commands"),
+            ("status",  h.on_status,  "Show model, workspace, tool counts"),
+            ("model",   h.on_model,   "Show current Claude model"),
+            ("models",  h.on_models,  "Switch Claude model"),
+            ("reset",   h.on_reset,   "Clear conversation history"),
+            ("cancel",  h.on_cancel,  "Cancel the current running task"),
+            ("tasks",   h.on_tasks,   "List background tasks"),
+            ("crons",   h.on_crons,   "List scheduled jobs"),
+            ("reload",  h.on_reload,  "Reload skills and memory"),
+            ("restart", h.on_restart, "Restart the bot process"),
+            ("update",  h.on_update,  "Update smolclaw and restart"),
+            ("btw",     h.on_btw,     "Ask a side question (no history)"),
+            ("context", h.on_context, "Show context window usage"),
+            ("effort",  h.on_effort,  "Set thinking effort level"),
+            ("efforts", h.on_efforts, None),  # alias for /effort
+        ]
+        for name, handler, _ in _COMMANDS:
+            bot.add_handler(CommandHandler(name, handler))
         bot.add_handler(CallbackQueryHandler(h.on_model_callback, pattern="^model:"))
         bot.add_handler(CallbackQueryHandler(h.on_effort_callback, pattern="^effort:"))
         bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, h.on_message))
@@ -306,70 +362,8 @@ def start(
         bot.add_handler(MessageReactionHandler(h.on_reaction))
 
         scheduler = setup_scheduler()
-
-        # post_init runs inside the running event loop — safe for async calls
-        async def _post_init(app) -> None:
-            from telegram import BotCommand
-            await app.bot.set_my_commands([
-                BotCommand("start",   "Wake the bot"),
-                BotCommand("help",    "Show available commands"),
-                BotCommand("status",  "Show model, workspace, tool counts"),
-                BotCommand("model",   "Show current Claude model"),
-                BotCommand("models",  "Switch Claude model"),
-                BotCommand("reset",   "Clear conversation history"),
-                BotCommand("cancel",  "Cancel the current running task"),
-                BotCommand("tasks",   "List background tasks"),
-                BotCommand("crons",   "List scheduled jobs"),
-                BotCommand("reload",  "Reload skills and memory"),
-                BotCommand("restart", "Restart the bot process"),
-                BotCommand("update",  "Update smolclaw and restart"),
-                BotCommand("btw",     "Ask a side question (no history)"),
-                BotCommand("context", "Show context window usage"),
-                BotCommand("effort",  "Set thinking effort level"),
-            ])
-            scheduler.start()
-            from .auth import default_chat_id
-            default_chat = default_chat_id()
-            if default_chat:
-                from .handover import exists as handover_exists
-                from .handover import load as handover_load
-                from .version import local_version
-                ver = local_version()
-                parts = [f"Back online. v{ver}"]
-                if handover_exists():
-                    handover = handover_load()
-                    # Extract version line from handover if present
-                    for line in handover.splitlines():
-                        if "->" in line and any(c.isdigit() for c in line):
-                            parts.append(line.strip())
-                            break
-                    parts.append("Handover loaded — picking up where I left off.")
-                try:
-                    await app.bot.send_message(chat_id=default_chat, text="\n".join(parts))
-                except Exception:
-                    pass
-
-        bot.post_init = _post_init
-
-        # Graceful shutdown hook — runs after run_polling() exits cleanly
-        async def _post_shutdown(app) -> None:
-            logger.info("Shutdown: saving handover...")
-            try:
-                from .handover import save
-                save("Process shutting down. No pending tasks.")
-            except Exception:
-                pass
-            try:
-                from .browser import BrowserManager
-                await BrowserManager.get().close_all()
-            except Exception:
-                pass
-            scheduler.shutdown(wait=False)
-            from .daemon import delete_pid
-            delete_pid()
-            logger.info("SmolClaw stopped.")
-
-        bot.post_shutdown = _post_shutdown
+        bot.post_init = lambda app: _post_init(app, scheduler, _COMMANDS)
+        bot.post_shutdown = lambda app: _post_shutdown(app, scheduler)
 
         logger.info("SmolClaw running.")
         bot.run_polling()

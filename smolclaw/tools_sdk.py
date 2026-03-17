@@ -225,6 +225,16 @@ async def search_sessions(args: dict) -> dict:
     return _text("\n\n".join(results))
 
 
+async def _browser_call(method: str, *args) -> dict:
+    """Shared helper for simple browser tool calls."""
+    from .browser import BrowserManager
+    try:
+        result = await getattr(BrowserManager.get(), method)(*args)
+        return _text(str(result) if isinstance(result, str) else f"OK: {result}")
+    except Exception as e:
+        return _text(f"Browser error: {e}")
+
+
 @tool(
     "browse",
     "Navigate to a URL in a headless browser. Renders JavaScript. "
@@ -248,13 +258,7 @@ async def browse(args: dict) -> dict:
     {"chat_id": str, "selector": str},
 )
 async def browser_click(args: dict) -> dict:
-    from .browser import BrowserManager
-
-    try:
-        result = await BrowserManager.get().click(str(args["chat_id"]), str(args["selector"]))
-        return _text(result)
-    except Exception as e:
-        return _text(f"Click failed: {e}")
+    return await _browser_call("click", str(args["chat_id"]), str(args["selector"]))
 
 
 @tool(
@@ -263,15 +267,7 @@ async def browser_click(args: dict) -> dict:
     {"chat_id": str, "selector": str, "text": str},
 )
 async def browser_type(args: dict) -> dict:
-    from .browser import BrowserManager
-
-    try:
-        result = await BrowserManager.get().type_text(
-            str(args["chat_id"]), str(args["selector"]), str(args["text"])
-        )
-        return _text(result)
-    except Exception as e:
-        return _text(f"Type failed: {e}")
+    return await _browser_call("type_text", str(args["chat_id"]), str(args["selector"]), str(args["text"]))
 
 
 @tool(
@@ -282,12 +278,11 @@ async def browser_type(args: dict) -> dict:
 )
 async def browser_screenshot(args: dict) -> dict:
     from .browser import BrowserManager
-
     try:
         path = await BrowserManager.get().screenshot(str(args["chat_id"]))
         return _text(f"Screenshot saved: {path}")
     except Exception as e:
-        return _text(f"Screenshot failed: {e}")
+        return _text(f"Browser error: {e}")
 
 
 @tool(
@@ -296,13 +291,7 @@ async def browser_screenshot(args: dict) -> dict:
     {"chat_id": str, "javascript": str},
 )
 async def browser_eval(args: dict) -> dict:
-    from .browser import BrowserManager
-
-    try:
-        result = await BrowserManager.get().evaluate(str(args["chat_id"]), str(args["javascript"]))
-        return _text(result)
-    except Exception as e:
-        return _text(f"JS eval failed: {e}")
+    return await _browser_call("evaluate", str(args["chat_id"]), str(args["javascript"]))
 
 
 @tool(
