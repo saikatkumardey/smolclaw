@@ -417,7 +417,16 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     # spawn_task uses asyncio.create_task() which is tied to the current event loop.
     # Cron jobs run inside asyncio.run() — when that returns the loop closes, killing
     # any background tasks silently. Don't expose spawn_task to cron agents.
-    if is_cron:
+    if chat_id == "cron:heartbeat":
+        # Heartbeat only needs to send a message — nothing else.
+        from .tools_sdk import telegram_send
+        smolclaw_tools = [telegram_send]
+    elif chat_id.startswith("cron:subconscious"):
+        # Subconscious only needs telegram + thread management — skip browser,
+        # deploy, test, etc. to cut MCP server startup time.
+        from .tools_sdk import telegram_send, update_subconscious, reflect
+        smolclaw_tools = [telegram_send, update_subconscious, reflect]
+    elif is_cron:
         smolclaw_tools = [*CUSTOM_TOOLS]
     else:
         spawn_task = _make_spawn_task_tool(chat_id, cfg)
@@ -429,12 +438,9 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
 
     mcp_servers = {"smolclaw": smolclaw_server}
 
-    if dynamic_mcp_server is not None:
+    # Subconscious runs with a minimal toolset — skip dynamic MCP to cut startup time.
+    if dynamic_mcp_server is not None and not chat_id.startswith("cron:subconscious"):
         mcp_servers["dynamic"] = dynamic_mcp_server
-        # Dynamic tool names can't be enumerated here without loading again;
-        # the caller adds them to allowed_tools via the tool list.
-        # We allow all mcp__dynamic__* by adding a wildcard entry.
-        # Claude Code supports trailing-* wildcards in allowed_tools.
         allowed.append("mcp__dynamic__*")
 
     # Cron jobs use a cheaper model and slimmer system prompt
@@ -444,6 +450,15 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     if chat_id.startswith("cron:subconscious"):
         model = cfg.get("subconscious_model") or model
 
+    # Subconscious gets fewer turns — each turn is an API round-trip and the
+    # subprocess boot + MCP init already eats a big chunk of the timeout budget.
+    if chat_id == "cron:heartbeat":
+        max_turns = 2  # read files, maybe send — that's it
+    elif chat_id.startswith("cron:subconscious"):
+        max_turns = 3
+    else:
+        max_turns = cfg.get("max_turns")
+
     return ClaudeAgentOptions(
         model=model,
         system_prompt=_system_prompt(slim=is_cron),
@@ -451,7 +466,7 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         mcp_servers=mcp_servers,
         permission_mode="acceptEdits",
         cwd=str(workspace.HOME),
-        max_turns=cfg.get("max_turns"),
+        max_turns=max_turns,
         effort=cfg.get("effort"),
     )
 

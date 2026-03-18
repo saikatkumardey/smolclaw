@@ -294,3 +294,80 @@ def test_list_tasks_excludes_old_completed():
     # Registry should have been pruned
     assert "old-done" not in ag._task_registry
     ag._task_registry.clear()
+
+
+# ---------------------------------------------------------------------------
+# Subconscious gets slim options
+# ---------------------------------------------------------------------------
+
+def test_subconscious_options_slim_tools(tmp_path, monkeypatch):
+    """Subconscious should get only telegram_send, update_subconscious, reflect — not the full tool set."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    opts = ag._make_options("cron:subconscious")
+    tool_names = opts.allowed_tools
+    # Must have the three slim tools
+    assert "mcp__smolclaw__telegram_send" in tool_names
+    assert "mcp__smolclaw__update_subconscious" in tool_names
+    assert "mcp__smolclaw__reflect" in tool_names
+    # Must NOT have browser, deploy, etc.
+    assert "mcp__smolclaw__browse" not in tool_names
+    assert "mcp__smolclaw__browser_click" not in tool_names
+    assert "mcp__smolclaw__deploy_tool" not in tool_names
+
+
+def test_subconscious_options_max_turns_capped(tmp_path, monkeypatch):
+    """Subconscious should get max_turns=3, not the default 10."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    opts = ag._make_options("cron:subconscious")
+    assert opts.max_turns == 3
+
+
+def test_subconscious_skips_dynamic_mcp(tmp_path, monkeypatch):
+    """Subconscious should not include dynamic MCP server even when tools exist."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    fake_mcp = MagicMock()
+    opts = ag._make_options("cron:subconscious", dynamic_mcp_server=fake_mcp)
+    # dynamic server should be excluded
+    assert "dynamic" not in opts.mcp_servers
+    assert "mcp__dynamic__*" not in opts.allowed_tools
+
+
+def test_regular_cron_still_gets_full_tools(tmp_path, monkeypatch):
+    """Regular cron jobs should still get the full CUSTOM_TOOLS set."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    opts = ag._make_options("cron:some-other-job")
+    tool_names = opts.allowed_tools
+    assert "mcp__smolclaw__browse" in tool_names
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat gets slim options
+# ---------------------------------------------------------------------------
+
+def test_heartbeat_options_slim_tools(tmp_path, monkeypatch):
+    """Heartbeat should only get telegram_send."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    opts = ag._make_options("cron:heartbeat")
+    tool_names = opts.allowed_tools
+    assert "mcp__smolclaw__telegram_send" in tool_names
+    assert "mcp__smolclaw__browse" not in tool_names
+    assert "mcp__smolclaw__update_subconscious" not in tool_names
+
+
+def test_heartbeat_max_turns_capped(tmp_path, monkeypatch):
+    """Heartbeat should get max_turns=2."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    opts = ag._make_options("cron:heartbeat")
+    assert opts.max_turns == 2

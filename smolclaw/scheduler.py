@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 
 import yaml
@@ -14,6 +15,10 @@ from . import workspace
 from .auth import default_chat_id
 from .tools import TelegramSender
 
+# Skip the `claude -v` subprocess the SDK spawns before every connect().
+# Cron jobs run frequently and the version doesn't change between runs.
+os.environ.setdefault("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
+
 _telegram = TelegramSender()
 
 HEARTBEAT_OK = "HEARTBEAT_OK"
@@ -21,6 +26,7 @@ SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 
 
 _CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
+_SUBCONSCIOUS_TIMEOUT_SECONDS = 600  # 10 minutes — subprocess boot + MCP init + multi-turn tool loop
 
 
 def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False, timeout: int | None = None) -> None:
@@ -65,6 +71,59 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False,
         _telegram.send(chat_id=deliver_to, message=result)
 
 
+_HEARTBEAT_TIMEOUT_SECONDS = 120  # 2 minutes — heartbeat should be fast
+_last_heartbeat_mtime: float = 0  # tracks when we last ran a heartbeat
+
+_HEARTBEAT_WATCHED_FILES = ("MEMORY.md", "USER.md", "subconscious.yaml")
+
+_HEARTBEAT_PROMPT = (
+    "HEARTBEAT_CHECK. Read HEARTBEAT.md and decide if there is anything worth telling the user.\n"
+    "If yes: call telegram_send with a short message, then reply HEARTBEAT_OK.\n"
+    "If no: reply HEARTBEAT_OK only. Do not send a message."
+)
+
+
+def _heartbeat_has_changes() -> bool:
+    """Check if any watched files or session logs changed since last heartbeat."""
+    global _last_heartbeat_mtime
+    if _last_heartbeat_mtime == 0:
+        return True  # first run — always check
+
+    # Check watched files
+    for name in _HEARTBEAT_WATCHED_FILES:
+        path = workspace.HOME / name
+        try:
+            if path.stat().st_mtime > _last_heartbeat_mtime:
+                return True
+        except FileNotFoundError:
+            continue
+
+    # Check session logs for new activity
+    sessions_dir = workspace.HOME / "sessions"
+    if sessions_dir.is_dir():
+        for f in sessions_dir.iterdir():
+            try:
+                if f.is_file() and f.stat().st_mtime > _last_heartbeat_mtime:
+                    return True
+            except (OSError, FileNotFoundError):
+                continue
+
+    return False
+
+
+def _run_heartbeat() -> None:
+    """Run a heartbeat check — but only invoke the model if something changed."""
+    global _last_heartbeat_mtime
+
+    if not _heartbeat_has_changes():
+        logger.debug("Heartbeat: nothing changed, skipping model call")
+        return
+
+    deliver_to = default_chat_id()
+    _run_job("heartbeat", _HEARTBEAT_PROMPT, deliver_to, heartbeat=True, timeout=_HEARTBEAT_TIMEOUT_SECONDS)
+    _last_heartbeat_mtime = __import__("time").time()
+
+
 def _run_subconscious() -> None:
     """Run a subconscious reflection cycle."""
     from .config import Config
@@ -99,7 +158,7 @@ def _run_subconscious() -> None:
     memory = workspace.read(workspace.MEMORY)
     prompt = subconscious.build_prompt(threads, recent_logs, memory)
     deliver_to = default_chat_id()
-    _run_job("subconscious", prompt, deliver_to, heartbeat=False)
+    _run_job("subconscious", prompt, deliver_to, heartbeat=False, timeout=_SUBCONSCIOUS_TIMEOUT_SECONDS)
 
 
 def _cleanup_stale_files() -> None:
@@ -149,6 +208,15 @@ def setup_scheduler() -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    # Built-in heartbeat — local change detection, only invokes model when needed
+    scheduler.add_job(
+        _run_heartbeat,
+        IntervalTrigger(minutes=30),
+        id="_heartbeat",
+        replace_existing=True,
+    )
+    logger.info("Scheduled: heartbeat (every 30m, local-first)")
+
     # Subconscious reflection loop
     from .config import Config
     cfg = Config.load()
@@ -168,6 +236,9 @@ def setup_scheduler() -> BackgroundScheduler:
 
     data = yaml.safe_load(crons_path.read_text()) or {}
     for job in data.get("jobs", []):
+        if job.get("id") == "heartbeat":
+            logger.debug("Skipping crons.yaml heartbeat — now built-in with local change detection")
+            continue
         if job.get("disabled"):
             logger.info("Skipping disabled job: {}", job.get("id", "?"))
             continue
