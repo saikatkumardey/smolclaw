@@ -62,8 +62,20 @@ Everything lives in `~/.smolclaw/`:
 | `tools/*.py` | Custom tools — hot-loaded, no restart needed |
 | `sessions/*.jsonl` | Conversation logs |
 | `handover.md` | State snapshot across restarts |
+| `subconscious.yaml` | Background reflection threads |
 
 Override the workspace path: `SMOLCLAW_HOME=/path/to/dir`
+
+## Subconscious
+
+A background reflection loop that runs every 2 hours. The agent reviews open threads, recent conversations, and memory — then decides whether to act (send a message, spawn a task) or stay quiet.
+
+Threads are tracked in `~/.smolclaw/subconscious.yaml`. The agent can add, resolve, or keep threads across cycles. Disable it or change the interval in `~/.smolclaw/config.yaml`:
+
+```yaml
+subconscious_enabled: false
+subconscious_interval_hours: 4
+```
 
 ## Custom tools
 
