@@ -92,11 +92,16 @@ def _format_event(event: dict) -> str:
     return ""
 
 
+_CC_FOOTER = "\n\n<i>— /cc session (/cc stop to end)</i>"
+
+
 def _truncate_buffer(buf: str) -> str:
     """Keep only the tail of the buffer to stay within Telegram limits."""
-    if len(buf) <= _MAX_TG_MSG:
-        return buf
-    return "…(truncated)\n" + buf[-(_MAX_TG_MSG - 15):]
+    footer_len = len(_CC_FOOTER)
+    max_body = _MAX_TG_MSG - footer_len
+    if len(buf) > max_body:
+        buf = "…(truncated)\n" + buf[-(max_body - 15):]
+    return buf + _CC_FOOTER
 
 
 async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
