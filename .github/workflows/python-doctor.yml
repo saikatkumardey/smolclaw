@@ -15,10 +15,13 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
 
+      - name: Install python-doctor (latest release)
+        run: uv tool install "python-doctor @ git+https://github.com/saikatkumardey/python-doctor"
+
       - name: Run python-doctor
         id: doctor
         run: |
-          score=$(uvx python-doctor . --score 2>/dev/null || echo "0")
+          score=$(python-doctor . --score 2>/dev/null || echo "0")
           echo "score=$score" >> "$GITHUB_OUTPUT"
           echo "Python Doctor score: $score/100"
 
