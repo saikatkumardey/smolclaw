@@ -15,6 +15,7 @@ dependencies = [
     "rich>=13.0",
     "loguru>=0.7.0",
     "questionary>=2.0.0",
+    "textual>=0.70",
     "typer>=0.24.1",
     "playwright>=1.40.0",
     "edge-tts>=6.1.0",

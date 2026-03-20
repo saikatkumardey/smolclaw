@@ -234,6 +234,19 @@ async def _post_shutdown(app, scheduler) -> None:
 
 
 @app.command()
+def chat() -> None:
+    """Launch the interactive TUI chat. Do not run alongside 'smolclaw start'."""
+    from . import workspace
+    from dotenv import load_dotenv
+    workspace.init()
+    load_dotenv(workspace.HOME / ".env", override=True)
+    os.environ.setdefault("TELEGRAM_BOT_TOKEN", "dummy")
+    os.environ.setdefault("ALLOWED_USER_IDS", "123")
+    from .tui import SmolClawApp  # deferred — env vars must be set first
+    SmolClawApp().run()
+
+
+@app.command()
 def start(
     foreground: bool = typer.Option(False, "--foreground", "-f", help="Run in foreground (blocking)."),
 ) -> None:
