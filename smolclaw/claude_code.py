@@ -1,4 +1,4 @@
-"""Live Claude Code sessions over Telegram via ACP (Agent Client Protocol)."""
+"""Live Claude Code sessions over Telegram via stream-json."""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +13,7 @@ from . import workspace
 
 logger = logging.getLogger(__name__)
 
-_ACPX_BIN = shutil.which("acpx") or os.path.expanduser("~/.npm-global/bin/acpx")
+_CLAUDE_BIN = shutil.which("claude") or "claude"
 _EDIT_INTERVAL = 2.0  # seconds between Telegram message edits
 _MAX_TG_MSG = 4000  # leave room for Telegram's 4096 limit
 _MAX_TURNS = 15
@@ -42,44 +42,41 @@ def has_active_session(chat_id: str) -> bool:
 
 
 def _format_event(event: dict) -> str:
-    """Format a single ACP JSON-RPC event for Telegram display."""
-    method = event.get("method", "")
-    params = event.get("params", {})
-    update = params.get("update", {})
-    result = event.get("result", {})
+    """Format a stream-json event for Telegram display."""
+    etype = event.get("type", "")
 
-    # Stream chunk: agent text
-    if method == "session/update":
-        kind = update.get("sessionUpdate", "")
-
-        if kind == "agent_message_chunk":
-            content = update.get("content", {})
-            if content.get("type") == "text":
-                return content.get("text", "")
-            if content.get("type") == "tool_use":
-                name = content.get("name", "?")
-                inp = content.get("input", {})
+    if etype == "assistant":
+        msg = event.get("message", {})
+        content_blocks = msg.get("content", [])
+        parts = []
+        for block in content_blocks:
+            if block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif block.get("type") == "tool_use":
+                name = block.get("name", "?")
+                inp = block.get("input", {})
                 if name == "Bash":
                     cmd = inp.get("command", "")[:200]
-                    return f"\n`> {name}: {cmd}`\n"
-                if name in ("Read", "Write", "Edit", "Glob", "Grep"):
+                    parts.append(f"\n> {name}: {cmd}\n")
+                elif name in ("Read", "Write", "Edit", "Glob", "Grep"):
                     path = inp.get("file_path", inp.get("pattern", ""))
-                    return f"\n`> {name}: {path}`\n"
-                return f"\n`> {name}`\n"
-            if content.get("type") == "tool_result":
-                text = str(content.get("content", ""))[:150]
-                return f"`  → {text}`\n"
+                    parts.append(f"\n> {name}: {path}\n")
+                else:
+                    parts.append(f"\n> {name}\n")
+        return "".join(parts)
 
-        if kind == "thinking":
-            text = update.get("text", "")
-            if text:
-                return f"_thinking: {text[:100]}_\n"
+    if etype == "user":
+        # Tool results
+        msg = event.get("message", {})
+        content_blocks = msg.get("content", [])
+        parts = []
+        for block in content_blocks:
+            if block.get("type") == "tool_result":
+                text = str(block.get("content", ""))[:150]
+                parts.append(f"  → {text}\n")
+        return "".join(parts)
 
-        # Skip other session updates (usage, commands, etc.)
-        return ""
-
-    # Prompt result
-    if "result" in event and "stopReason" in result:
+    if etype == "result":
         return "\n--- done ---\n"
 
     return ""
@@ -89,7 +86,7 @@ def _truncate_buffer(buf: str) -> str:
     """Keep only the tail of the buffer to stay within Telegram limits."""
     if len(buf) <= _MAX_TG_MSG:
         return buf
-    return "…(truncated)\n" + buf[-((_MAX_TG_MSG) - 15):]
+    return "…(truncated)\n" + buf[-(_MAX_TG_MSG - 15):]
 
 
 async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
@@ -109,13 +106,12 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
         )
         session.last_edit = now
     except Exception as e:
-        # "message is not modified" is expected when buffer hasn't changed
         if "not modified" not in str(e).lower():
             logger.debug("CC edit failed: %s", e)
 
 
 async def _stream_loop(session: CCSession, bot) -> None:
-    """Read ACP events from acpx stdout and relay to Telegram."""
+    """Read stream-json events from claude stdout and relay to Telegram."""
     proc = session.process
     if not proc or not proc.stdout:
         return
@@ -130,9 +126,11 @@ async def _stream_loop(session: CCSession, bot) -> None:
             except json.JSONDecodeError:
                 continue
 
-            # Capture session ID from session/new result
-            if "result" in event and "sessionId" in event.get("result", {}):
-                session.session_id = event["result"]["sessionId"]
+            # Capture session ID
+            if event.get("type") == "system" and event.get("session_id"):
+                session.session_id = event["session_id"]
+            if event.get("type") == "result" and event.get("session_id"):
+                session.session_id = event["session_id"]
 
             formatted = _format_event(event)
             if formatted:
@@ -149,17 +147,16 @@ async def _stream_loop(session: CCSession, bot) -> None:
         session.process = None
 
 
-def _build_acpx_cmd(prompt: str, session: CCSession, one_shot: bool = False) -> list[str]:
-    """Build the acpx command line."""
+def _build_cmd(prompt: str, session: CCSession) -> list[str]:
+    """Build the claude CLI command."""
     cmd = [
-        _ACPX_BIN,
-        "--approve-all",
-        "--format", "json",
-        "claude",
+        _CLAUDE_BIN, "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--max-turns", str(_MAX_TURNS),
     ]
-    if one_shot:
-        cmd.append("exec")
-    cmd.append(prompt)
+    if session.session_id:
+        cmd.extend(["--session-id", session.session_id, "--continue"])
     return cmd
 
 
@@ -169,7 +166,6 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
         await bot.send_message(chat_id=chat_id, text="CC session already running. Send /cc stop first.")
         return
 
-    # Send initial output message
     msg = await bot.send_message(chat_id=chat_id, text="CC: starting…")
 
     session = CCSession(
@@ -178,10 +174,15 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
         working_dir=working_dir or str(workspace.HOME),
     )
 
+    # Reuse session_id if we had one before
+    old = _sessions.get(chat_id)
+    if old and old.session_id:
+        session.session_id = old.session_id
+
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
 
-    cmd = _build_acpx_cmd(prompt, session, one_shot=True)
+    cmd = _build_cmd(prompt, session)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -193,8 +194,7 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
         )
     except Exception as e:
         await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=msg.message_id,
+            chat_id=chat_id, message_id=msg.message_id,
             text=f"Failed to start CC: {e}",
         )
         return
@@ -210,10 +210,10 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     if not session:
         return False
     if session.process is not None:
-        # Still running — can't send yet
+        return False
+    if not session.session_id:
         return False
 
-    # New output message for the continuation
     msg = await bot.send_message(chat_id=chat_id, text="CC: continuing…")
     session.output_msg_id = msg.message_id
     session.buffer = ""
@@ -222,8 +222,7 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     env = {**os.environ}
     env.pop("CLAUDECODE", None)
 
-    # Use session prompt (not exec) for multi-turn
-    cmd = [_ACPX_BIN, "--approve-all", "--format", "json", "claude", prompt]
+    cmd = _build_cmd(prompt, session)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -235,8 +234,7 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
         )
     except Exception as e:
         await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=msg.message_id,
+            chat_id=chat_id, message_id=msg.message_id,
             text=f"CC continue failed: {e}",
         )
         return False
