@@ -13,10 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v4
-
-      - name: Install python-doctor (latest release)
-        run: uv tool install "python-doctor @ git+https://github.com/saikatkumardey/python-doctor"
+      - name: Install python-doctor
+        run: pipx install python-doctor
 
       - name: Run python-doctor
         id: doctor
