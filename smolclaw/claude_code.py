@@ -154,6 +154,7 @@ def _build_cmd(prompt: str, session: CCSession) -> list[str]:
         "--output-format", "stream-json",
         "--verbose",
         "--max-turns", str(_MAX_TURNS),
+        "--permission-mode", "bypassPermissions",
     ]
     if session.session_id:
         cmd.extend(["--session-id", session.session_id, "--continue"])
