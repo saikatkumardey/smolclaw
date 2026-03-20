@@ -99,6 +99,12 @@ def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
     if _dir_cache is not None and _dir_cache[0] == dir_mtime:
         return list(_dir_cache[1])
 
+    # Evict cache entries for deleted files
+    current_files = {str(p) for p in tools_dir.glob("*.py")}
+    for cached_path in list(_tool_cache):
+        if cached_path not in current_files:
+            del _tool_cache[cached_path]
+
     for path in sorted(tools_dir.glob("*.py")):
         str_path = str(path)
         try:

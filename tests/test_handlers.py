@@ -340,3 +340,62 @@ class TestOnUpdate:
         mock_execv.assert_not_called()
         import signal
         mock_kill.assert_called_with(12345, signal.SIGTERM)
+
+
+# ---------------------------------------------------------------------------
+# Reaction handler — message=None safety
+# ---------------------------------------------------------------------------
+
+class TestRunAgentNullMessage:
+    @pytest.mark.asyncio
+    async def test_no_crash_when_message_is_none(self, monkeypatch):
+        """_run_agent_and_reply should not crash when message=None (reaction path)."""
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import _run_agent_and_reply
+
+        bot = MagicMock()
+        bot.send_chat_action = AsyncMock()
+        bot.send_message = AsyncMock()
+
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Noted the reaction."):
+            # Should not raise AttributeError
+            await _run_agent_and_reply(bot, None, "123", "reaction msg", use_placeholder=False)
+
+        # Reply should be sent via bot.send_message since message is None
+        bot.send_message.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_crash_on_error_when_message_is_none(self, monkeypatch):
+        """Error path should not crash when message=None."""
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import _run_agent_and_reply
+
+        bot = MagicMock()
+        bot.send_chat_action = AsyncMock()
+        bot.send_message = AsyncMock()
+
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+            # Should not raise
+            await _run_agent_and_reply(bot, None, "123", "reaction msg", use_placeholder=False)
+
+
+# ---------------------------------------------------------------------------
+# on_photo — empty photo array safety
+# ---------------------------------------------------------------------------
+
+class TestOnPhotoEmptyArray:
+    @pytest.mark.asyncio
+    async def test_empty_photo_array_no_crash(self, monkeypatch):
+        """on_photo should handle empty photo array gracefully."""
+        monkeypatch.setenv("ALLOWED_USER_IDS", "123")
+        from smolclaw.handlers import on_photo
+
+        update = MagicMock()
+        update.effective_chat.id = 123
+        update.message.photo = []
+        update.message.caption = "test"
+        update.message.reply_text = AsyncMock()
+        ctx = MagicMock()
+
+        # Should not raise IndexError
+        await on_photo(update, ctx)

@@ -303,21 +303,27 @@ def _build_auto_handover(chat_id: str) -> str:
     if not sessions_dir.exists():
         return ""
 
-    # Collect recent messages for this chat from the last 2 days of logs
+    # Collect recent messages for this chat from the last 2 days of logs.
+    # Stream line-by-line to avoid loading huge files into memory.
+    _MAX_LOG_SIZE = 50_000_000  # 50 MB — skip files larger than this
     files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:2]
     messages: list[dict] = []
     for f in files:
         try:
-            for line in f.read_text().splitlines():
-                if not line.strip():
-                    continue
-                entry = json.loads(line)
-                if entry.get("chat_id") != chat_id:
-                    continue
-                if entry.get("role") in ("user", "assistant"):
-                    content = entry.get("content", "")
-                    if isinstance(content, str) and content.strip():
-                        messages.append(entry)
+            if f.stat().st_size > _MAX_LOG_SIZE:
+                continue
+            with open(f) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = json.loads(line)
+                    if entry.get("chat_id") != chat_id:
+                        continue
+                    if entry.get("role") in ("user", "assistant"):
+                        content = entry.get("content", "")
+                        if isinstance(content, str) and content.strip():
+                            messages.append(entry)
         except Exception:
             continue
 
@@ -580,5 +586,10 @@ async def run(chat_id: str, user_message: str) -> str:
             logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
             _sessions.pop(chat_id, None)
 
-    _prune_stale_locks()
+    # Cron locks are single-use (fresh event loop each time) — clean up immediately.
+    # For regular chats, prune only stale unlocked ones.
+    if chat_id.startswith("cron:"):
+        _session_locks.pop(chat_id, None)
+    else:
+        _prune_stale_locks()
     return reply

@@ -21,8 +21,8 @@ app = typer.Typer(name="smolclaw", help="Your personal AI agent.", add_completio
 
 def version_callback(value: bool) -> None:
     if value:
-        from importlib.metadata import version
-        typer.echo(f"smolclaw {version('smolclaw')}")
+        from .version import local_version
+        typer.echo(f"smolclaw {local_version()}")
         raise typer.Exit()
 
 

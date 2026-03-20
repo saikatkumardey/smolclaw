@@ -53,6 +53,11 @@ Telegram bot wrapping `claude-agent-sdk`. State lives in `~/.smolclaw/` (not in 
 - **`importlib.metadata` doesn't work in uv tool installs.** `importlib.metadata.version("smolclaw")` throws `PackageNotFoundError` when installed via `uv tool install`. Use `version.local_version()` which falls back to parsing `uv tool list` output, then `pyproject.toml`.
 - **Always end-to-end test before pushing, not just unit tests.** Unit tests passing doesn't mean the feature works in the real environment. For version checks, runtime metadata, or anything environment-dependent — verify the actual function output in a quick `uv run python -c "..."` smoke test.
 
+## What makes code maintainable
+
+- **Reduce layers a reader has to trace.** Flat is better than deep. If understanding a change requires jumping through 3+ files or call frames, collapse the indirection. Prefer direct calls over abstract dispatch when there's only one use case.
+- **Reduce state a reader has to hold in their head.** Short functions, small scopes, no hidden side effects. A reader should be able to understand a function from its signature and body alone — without needing to track what mutated elsewhere.
+
 ## Conventions
 
 - **TDD: write tests first, then implement.** Write a failing test that captures the expected behavior, then write the code to make it pass. This catches environment mismatches and edge cases before they ship.

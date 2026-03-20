@@ -157,3 +157,32 @@ def test_loader_ignores_staging_dir(tmp_path):
     # Only .py files directly in tools_dir are loaded
     tools = load_custom_tools(tmp_path)
     assert len(tools) == 0
+
+
+def test_deleted_tool_evicted_from_cache(tmp_path):
+    """Deleting a tool file should remove it from _tool_cache on next load."""
+    import smolclaw.tool_loader as tl
+
+    # Save and restore global cache state
+    old_dir_cache = tl._dir_cache
+    old_tool_cache = dict(tl._tool_cache)
+    try:
+        tl._dir_cache = None
+        tl._tool_cache.clear()
+
+        (tmp_path / "ping.py").write_text(VALID_TOOL_SRC)
+        tools = tl.load_custom_tools(tmp_path)
+        assert len(tools) == 1
+        assert str(tmp_path / "ping.py") in tl._tool_cache
+
+        # Delete the tool file and invalidate dir cache
+        (tmp_path / "ping.py").unlink()
+        tl._dir_cache = None  # force rescan
+
+        tools = tl.load_custom_tools(tmp_path)
+        assert len(tools) == 0
+        assert str(tmp_path / "ping.py") not in tl._tool_cache
+    finally:
+        tl._dir_cache = old_dir_cache
+        tl._tool_cache.clear()
+        tl._tool_cache.update(old_tool_cache)

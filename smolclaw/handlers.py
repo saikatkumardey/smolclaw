@@ -72,7 +72,7 @@ def _classify_error(e: Exception) -> str:
 class _TypingLoop:
     """Keep the 'typing...' indicator alive until the task completes."""
 
-    def __init__(self, bot, chat_id: str, interval: float = 4.0):
+    def __init__(self, bot, chat_id: str, interval: float = 2.0):
         self._bot = bot
         self._chat_id = chat_id
         self._interval = interval
@@ -108,14 +108,6 @@ async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
     except Exception:
         await fn(text)
 
-
-async def _send_md(bot, chat_id: str, text: str) -> None:
-    """Send a message via bot with Markdown, falling back to plain text."""
-    fmt = _to_telegram_md(text)
-    try:
-        await bot.send_message(chat_id=chat_id, text=fmt, parse_mode="Markdown")
-    except Exception:
-        await bot.send_message(chat_id=chat_id, text=fmt)
 
 
 async def _reply_chunked(message, text: str, edit_message=None) -> None:
@@ -165,10 +157,15 @@ async def _run_agent_and_reply(
             used, fill = _context_fill(chat_id)
             if fill >= CONTEXT_WARN_THRESHOLD:
                 reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
-        if placeholder:
+        if message or placeholder:
             await _reply_chunked(message, reply, edit_message=placeholder)
         else:
-            await _send_md(bot, chat_id, reply)
+            # No message object (e.g. reaction handler) — send via bot directly
+            fmt = _to_telegram_md(reply)
+            try:
+                await bot.send_message(chat_id=chat_id, text=fmt, parse_mode="Markdown")
+            except Exception:
+                await bot.send_message(chat_id=chat_id, text=fmt)
     except Exception as e:
         logger.exception("Error: %s", e)
         error_msg = _classify_error(e)
@@ -176,14 +173,18 @@ async def _run_agent_and_reply(
             try:
                 await placeholder.edit_text(error_msg)
             except Exception:
-                await message.reply_text(error_msg)
+                if message:
+                    await message.reply_text(error_msg)
         elif message:
             await message.reply_text(error_msg)
 
 
 @require_allowed
 async def on_start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("SmolClaw online. Say hello.")
+    await update.message.reply_text(
+        "SmolClaw online. I'm your personal AI agent — "
+        "just send a message or type /help to see what I can do."
+    )
 
 
 @require_allowed
@@ -622,6 +623,9 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle photos: save to uploads/, pass path to agent for native vision."""
     chat_id = str(update.effective_chat.id)
     caption = update.message.caption or ""
+    if not update.message.photo:
+        await update.message.reply_text("No photo data received.")
+        return
     try:
         photo = update.message.photo[-1]  # highest resolution
         file = await context.bot.get_file(photo.file_id)

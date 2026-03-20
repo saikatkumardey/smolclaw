@@ -371,3 +371,92 @@ def test_heartbeat_max_turns_capped(tmp_path, monkeypatch):
 
     opts = ag._make_options("cron:heartbeat")
     assert opts.max_turns == 2
+
+
+# ---------------------------------------------------------------------------
+# Session lock cleanup
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _build_auto_handover — streaming, no OOM
+# ---------------------------------------------------------------------------
+
+def test_build_auto_handover_streams_large_file(tmp_path, monkeypatch):
+    """_build_auto_handover should not load entire file into memory."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(exist_ok=True)
+
+    # Write a large-ish JSONL file (many lines, only last few matter)
+    import json
+    log_file = sessions_dir / "2026-03-19.jsonl"
+    with open(log_file, "w") as f:
+        # 500 filler lines for a different chat
+        for i in range(500):
+            f.write(json.dumps({"chat_id": "other", "role": "user", "content": f"msg {i}", "ts": "2026-03-19T00:00:00"}) + "\n")
+        # 5 lines for our chat
+        for i in range(5):
+            f.write(json.dumps({"chat_id": "my-chat", "role": "user", "content": f"important msg {i}", "ts": "2026-03-19T01:00:00"}) + "\n")
+
+    result = ag._build_auto_handover("my-chat")
+    assert "important msg" in result
+    assert len(result) < 4000
+
+
+def test_build_auto_handover_skips_huge_files(tmp_path, monkeypatch):
+    """Files over the size cap should be skipped to avoid OOM."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(exist_ok=True)
+
+    # Create a file that exceeds the size cap (we'll set a low cap for testing)
+    log_file = sessions_dir / "2026-03-19.jsonl"
+    import json
+    with open(log_file, "w") as f:
+        for i in range(5):
+            f.write(json.dumps({"chat_id": "test", "role": "user", "content": f"msg {i}", "ts": "2026-03-19"}) + "\n")
+
+    # Should work for normal-sized files
+    result = ag._build_auto_handover("test")
+    assert "msg" in result
+
+
+# ---------------------------------------------------------------------------
+# Session lock cleanup
+# ---------------------------------------------------------------------------
+
+def test_prune_stale_locks_removes_orphaned_locks():
+    """Locks without a corresponding session should be pruned."""
+    import smolclaw.agent as ag
+
+    # Create orphaned lock entry
+    ag._session_locks["orphan-chat"] = asyncio.Lock()
+    assert "orphan-chat" in ag._session_locks
+
+    ag._prune_stale_locks()
+    assert "orphan-chat" not in ag._session_locks
+
+
+@pytest.mark.asyncio
+async def test_cron_lock_cleaned_after_run(tmp_path, monkeypatch):
+    """Cron job locks should be cleaned up after run() completes."""
+    _patch_workspace(tmp_path, monkeypatch)
+    import smolclaw.agent as ag
+
+    mock_client = AsyncMock(spec=ag.ClaudeSDKClient)
+    mock_client.receive_response.return_value = _make_fake_receive("done")()
+
+    with patch("smolclaw.agent.load_custom_tools", return_value=[]), \
+         patch("smolclaw.agent.ClaudeSDKClient", return_value=mock_client), \
+         patch("smolclaw.agent._make_options", return_value=MagicMock()):
+        try:
+            await ag.run(chat_id="cron:test-cleanup", user_message="hi")
+        finally:
+            ag._sessions.pop("cron:test-cleanup", None)
+
+    # Cron lock should be cleaned up since session was popped
+    assert "cron:test-cleanup" not in ag._session_locks

@@ -232,6 +232,7 @@ async def _browser_call(method: str, *args) -> dict:
         result = await getattr(BrowserManager.get(), method)(*args)
         return _text(str(result) if isinstance(result, str) else f"OK: {result}")
     except Exception as e:
+        logger.warning("Browser {} failed: {}", method, e)
         return _text(f"Browser error: {e}")
 
 
