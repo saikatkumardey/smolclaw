@@ -159,7 +159,21 @@ async def _stream_loop(session: CCSession, bot) -> None:
                 session.buffer += formatted
                 await _edit_output(session, bot)
 
+        # Read stderr for error diagnostics
+        stderr_text = ""
+        if proc.stderr:
+            try:
+                stderr_data = await proc.stderr.read()
+                stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+            except Exception:
+                pass
+
         # Final edit with complete output
+        if not session.buffer.strip() and stderr_text:
+            session.buffer = f"⚠️ CC error:\n<code>{_html_escape(stderr_text[:500])}</code>"
+        elif not session.buffer.strip():
+            session.buffer = "✅ CC: done (no output)"
+
         await _edit_output(session, bot, final=True)
     except asyncio.CancelledError:
         pass
@@ -179,7 +193,7 @@ def _build_cmd(prompt: str, session: CCSession) -> list[str]:
         "--permission-mode", "bypassPermissions",
     ]
     if session.session_id:
-        cmd.extend(["--session-id", session.session_id, "--continue"])
+        cmd.extend(["--resume", session.session_id])
     return cmd
 
 
