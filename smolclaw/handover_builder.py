@@ -43,7 +43,7 @@ def _collect_chat_messages(chat_id: str) -> list[dict]:
     return messages
 
 
-def build_auto_handover(chat_id: str) -> str:
+def build_auto_handover(chat_id: str, reason: str = "auto-rotated due to context pressure") -> str:
     """Build a handover summary from recent session log entries for this chat_id."""
     messages = _collect_chat_messages(chat_id)
     if not messages:
@@ -53,5 +53,5 @@ def build_auto_handover(chat_id: str) -> str:
     parts = ["CONTEXT (recent conversation):"]
     for msg in recent:
         parts.append(f"[{msg.get('ts', '')[:16]}] {msg['role']}: {msg['content'][:300]}")
-    parts.append("\nPENDING: none (auto-rotated due to context pressure)")
+    parts.append(f"\nPENDING: none ({reason})")
     return "\n".join(parts)

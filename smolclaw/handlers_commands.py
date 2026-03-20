@@ -262,7 +262,10 @@ async def on_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Restarting…")
     try:
         from .handover import save
-        save("Process restarting via /restart command.")
+        from .handover_builder import build_auto_handover
+        chat_id = str(update.effective_chat.id)
+        handover = build_auto_handover(chat_id, reason="user triggered /restart")
+        save(handover or "Process restarting via /restart command.")
     except Exception:
         logger.debug("failed to save handover before restart", exc_info=True)
     os.kill(os.getpid(), signal.SIGTERM)
