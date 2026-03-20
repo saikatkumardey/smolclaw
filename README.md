@@ -25,10 +25,13 @@ Setup asks for your Telegram bot token, user ID, and Claude auth. Get a bot toke
 ```bash
 smolclaw start       # background daemon
 smolclaw start -f    # foreground
+smolclaw chat        # interactive TUI (no Telegram needed)
 smolclaw logs -f     # stream logs
 smolclaw stop
 smolclaw restart
 ```
+
+`smolclaw chat` launches a terminal UI for chatting directly with your agent — useful for testing, debugging, or when you don't want to go through Telegram.
 
 On Linux with systemd, `smolclaw setup` installs and starts the service automatically.
 
