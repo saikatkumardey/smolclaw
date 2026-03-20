@@ -236,8 +236,9 @@ async def _post_shutdown(app, scheduler) -> None:
 @app.command()
 def chat() -> None:
     """Launch the interactive TUI chat. Do not run alongside 'smolclaw start'."""
-    from . import workspace
     from dotenv import load_dotenv
+
+    from . import workspace
     workspace.init()
     load_dotenv(workspace.HOME / ".env", override=True)
     os.environ.setdefault("TELEGRAM_BOT_TOKEN", "dummy")

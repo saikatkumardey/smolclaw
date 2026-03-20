@@ -430,7 +430,7 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
     elif chat_id.startswith("cron:subconscious"):
         # Subconscious only needs telegram + thread management — skip browser,
         # deploy, test, etc. to cut MCP server startup time.
-        from .tools_sdk import telegram_send, update_subconscious, reflect
+        from .tools_sdk import reflect, telegram_send, update_subconscious
         smolclaw_tools = [telegram_send, update_subconscious, reflect]
     elif is_cron:
         smolclaw_tools = [*CUSTOM_TOOLS]

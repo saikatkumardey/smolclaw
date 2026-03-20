@@ -154,7 +154,7 @@ async def _run_agent_and_reply(
                     pass
             return
         if context_warn:
-            used, fill = _context_fill(chat_id)
+            _used, fill = _context_fill(chat_id)
             if fill >= CONTEXT_WARN_THRESHOLD:
                 reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
         if message or placeholder:

@@ -4,8 +4,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from smolclaw import scheduler as _sched
 
@@ -132,7 +131,7 @@ class TestHeartbeatSkipsWhenQuiet:
         monkeypatch.setattr(_sched, "_last_heartbeat_mtime", time.time() + 1)
 
         run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *a, **kw: run_job_calls.append(1)), \
+        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
              patch("smolclaw.auth.default_chat_id", return_value="123"):
             _sched._run_heartbeat()
 
@@ -148,7 +147,7 @@ class TestHeartbeatSkipsWhenQuiet:
         monkeypatch.setattr(_sched, "_last_heartbeat_mtime", 0)
 
         run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *a, **kw: run_job_calls.append(1)), \
+        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
              patch("smolclaw.auth.default_chat_id", return_value="123"):
             _sched._run_heartbeat()
 
@@ -162,7 +161,7 @@ class TestHeartbeatSkipsWhenQuiet:
         monkeypatch.setattr(_sched, "_last_heartbeat_mtime", 0)
 
         run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *a, **kw: run_job_calls.append(1)), \
+        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
              patch("smolclaw.auth.default_chat_id", return_value="123"):
             _sched._run_heartbeat()
 
@@ -179,7 +178,7 @@ class TestHeartbeatSkipsWhenQuiet:
         (tmp_path / "sessions" / "chat123.jsonl").write_text('{"role":"user"}\n')
 
         run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *a, **kw: run_job_calls.append(1)), \
+        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
              patch("smolclaw.auth.default_chat_id", return_value="123"):
             _sched._run_heartbeat()
 

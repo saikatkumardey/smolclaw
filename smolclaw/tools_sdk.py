@@ -12,7 +12,14 @@ from claude_agent_sdk import tool
 
 from . import workspace
 from .auth import default_chat_id, is_allowed
-from .tools import _edit_telegram, _send_telegram, _send_telegram_file, _send_telegram_voice, _set_reaction, _text_to_voice
+from .tools import (
+    _edit_telegram,
+    _send_telegram,
+    _send_telegram_file,
+    _send_telegram_voice,
+    _set_reaction,
+    _text_to_voice,
+)
 from .version import check_remote_version as _check_remote_version
 from .version import get_update_summary as _get_update_summary
 from .version import local_version as _local_version
@@ -232,7 +239,6 @@ async def _browser_call(method: str, *args) -> dict:
         result = await getattr(BrowserManager.get(), method)(*args)
         return _text(str(result) if isinstance(result, str) else f"OK: {result}")
     except Exception as e:
-        logger.warning("Browser {} failed: {}", method, e)
         return _text(f"Browser error: {e}")
 
 
