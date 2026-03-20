@@ -78,9 +78,9 @@ def _format_event(event: dict) -> str:
                 elif name in ("Glob", "Grep"):
                     hint = inp.get("pattern", "")
                 if hint:
-                    parts.append(f"\n<code>› {name}: {_html_escape(hint)}</code>")
+                    parts.append(f"\n<code>> {name}: {_html_escape(hint)}</code>")
                 else:
-                    parts.append(f"\n<code>› {name}</code>")
+                    parts.append(f"\n<code>> {name}</code>")
         return "".join(parts)
 
     if etype == "result":
@@ -306,7 +306,7 @@ async def stop_session(chat_id: str) -> bool:
         try:
             session.process.terminate()
             await asyncio.wait_for(session.process.wait(), timeout=5)
-        except (asyncio.TimeoutError, ProcessLookupError):
+        except (TimeoutError, ProcessLookupError):
             try:
                 session.process.kill()
             except ProcessLookupError:

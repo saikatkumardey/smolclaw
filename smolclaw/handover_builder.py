@@ -59,7 +59,7 @@ def build_auto_handover(chat_id: str, reason: str = "auto-rotated due to context
     user_msgs = [m for m in recent if m.get("role") == "user"]
     if user_msgs:
         last_topics = [m["content"][:100] for m in user_msgs[-5:]]
-        parts.append(f"\nRECENT USER TOPICS:\n" + "\n".join(f"- {t}" for t in last_topics))
+        parts.append("\nRECENT USER TOPICS:\n" + "\n".join(f"- {t}" for t in last_topics))
 
     parts.append(f"\nPENDING: Review recent topics above and resume if user refers to them. ({reason})")
     return "\n".join(parts)

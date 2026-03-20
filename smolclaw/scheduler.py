@@ -64,6 +64,35 @@ def _should_suppress_result(job_id: str, result: str) -> bool:
     return result == "(no response)"
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    """Return True if the exception looks like an OAuth/auth failure."""
+    exc_str = str(exc).lower()
+    return "401" in exc_str or "authentication" in exc_str or "oauth" in exc_str or ("token" in exc_str and "expired" in exc_str)
+
+
+def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
+    """Track consecutive auth failures and send an alert after threshold."""
+    global _auth_fail_count, _auth_alert_sent
+    _auth_fail_count += 1
+    if _auth_fail_count >= _AUTH_ALERT_THRESHOLD and not _auth_alert_sent and deliver_to:
+        _telegram.send(
+            chat_id=deliver_to,
+            message=f"⚠️ AUTH DOWN — {_auth_fail_count} consecutive auth failures. "
+            f"OAuth token likely expired. All crons are failing. "
+            f"Please run: claude /login"
+        )
+        _auth_alert_sent = True
+    elif deliver_to and not _auth_alert_sent:
+        _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
+
+
+def _reset_auth_tracking() -> None:
+    """Reset auth failure counters after a successful run."""
+    global _auth_fail_count, _auth_alert_sent
+    _auth_fail_count = 0
+    _auth_alert_sent = False
+
+
 def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = None) -> None:
     if timeout is None:
         timeout = _CRON_TIMEOUT_SECONDS
@@ -79,31 +108,15 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = No
 
     if exc is not None:
         logger.error("Cron {} failed: {}", job_id, exc)
-        # Track consecutive auth failures and alert
-        global _auth_fail_count, _auth_alert_sent
-        exc_str = str(exc).lower()
-        if "401" in exc_str or "authentication" in exc_str or "oauth" in exc_str or "token" in exc_str and "expired" in exc_str:
-            _auth_fail_count += 1
-            if _auth_fail_count >= _AUTH_ALERT_THRESHOLD and not _auth_alert_sent and deliver_to:
-                _telegram.send(
-                    chat_id=deliver_to,
-                    message=f"⚠️ AUTH DOWN — {_auth_fail_count} consecutive auth failures. "
-                    f"OAuth token likely expired. All crons are failing. "
-                    f"Please run: claude /login"
-                )
-                _auth_alert_sent = True
-            elif deliver_to and not _auth_alert_sent:
-                _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
+        if _is_auth_error(exc):
+            _handle_auth_failure(job_id, exc, deliver_to)
         else:
-            _auth_fail_count = 0
-            _auth_alert_sent = False
+            _reset_auth_tracking()
             if deliver_to:
                 _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
         return
 
-    # Auth recovered — reset failure tracking
-    _auth_fail_count = 0
-    _auth_alert_sent = False
+    _reset_auth_tracking()
 
     if not _should_suppress_result(job_id, result) and deliver_to:
         _telegram.send(chat_id=deliver_to, message=result)
