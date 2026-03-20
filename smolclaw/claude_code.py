@@ -41,8 +41,13 @@ def has_active_session(chat_id: str) -> bool:
     return chat_id in _sessions
 
 
+def _html_escape(text: str) -> str:
+    """Escape HTML special characters."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _format_event(event: dict) -> str:
-    """Format a stream-json event for Telegram display."""
+    """Format a stream-json event for Telegram HTML display."""
     etype = event.get("type", "")
 
     if etype == "assistant":
@@ -51,33 +56,32 @@ def _format_event(event: dict) -> str:
         parts = []
         for block in content_blocks:
             if block.get("type") == "text":
-                parts.append(block.get("text", ""))
+                parts.append(_html_escape(block.get("text", "")))
             elif block.get("type") == "tool_use":
                 name = block.get("name", "?")
                 inp = block.get("input", {})
                 if name == "Bash":
-                    cmd = inp.get("command", "")[:200]
-                    parts.append(f"\n> {name}: {cmd}\n")
+                    cmd = _html_escape(inp.get("command", "")[:200])
+                    parts.append(f"\n🔧 <b>{name}</b>\n<code>{cmd}</code>\n")
                 elif name in ("Read", "Write", "Edit", "Glob", "Grep"):
-                    path = inp.get("file_path", inp.get("pattern", ""))
-                    parts.append(f"\n> {name}: {path}\n")
+                    path = _html_escape(inp.get("file_path", inp.get("pattern", "")))
+                    parts.append(f"\n📄 <b>{name}</b> <code>{path}</code>\n")
                 else:
-                    parts.append(f"\n> {name}\n")
+                    parts.append(f"\n⚙️ <b>{name}</b>\n")
         return "".join(parts)
 
     if etype == "user":
-        # Tool results
         msg = event.get("message", {})
         content_blocks = msg.get("content", [])
         parts = []
         for block in content_blocks:
             if block.get("type") == "tool_result":
-                text = str(block.get("content", ""))[:150]
-                parts.append(f"  → {text}\n")
+                text = _html_escape(str(block.get("content", ""))[:150])
+                parts.append(f"<i>→ {text}</i>\n")
         return "".join(parts)
 
     if etype == "result":
-        return "\n--- done ---\n"
+        return "\n✅ <b>done</b>\n"
 
     return ""
 
@@ -103,11 +107,29 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
             chat_id=session.chat_id,
             message_id=session.output_msg_id,
             text=text,
+            parse_mode="HTML",
         )
         session.last_edit = now
     except Exception as e:
-        if "not modified" not in str(e).lower():
-            logger.debug("CC edit failed: %s", e)
+        err = str(e).lower()
+        if "not modified" not in err:
+            # Fall back to plain text if HTML parsing fails
+            if "parse" in err or "can't" in err:
+                try:
+                    from html import unescape
+                    plain = unescape(text.replace("<b>", "").replace("</b>", "")
+                                         .replace("<i>", "").replace("</i>", "")
+                                         .replace("<code>", "").replace("</code>", ""))
+                    await bot.edit_message_text(
+                        chat_id=session.chat_id,
+                        message_id=session.output_msg_id,
+                        text=plain,
+                    )
+                    session.last_edit = now
+                except Exception:
+                    pass
+            else:
+                logger.debug("CC edit failed: %s", e)
 
 
 async def _stream_loop(session: CCSession, bot) -> None:
