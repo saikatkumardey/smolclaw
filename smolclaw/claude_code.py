@@ -53,7 +53,11 @@ def _html_escape(text: str) -> str:
 
 
 def _format_event(event: dict) -> str:
-    """Format a stream-json event for Telegram HTML display."""
+    """Format a stream-json event for Telegram HTML display.
+
+    Only shows assistant text and a compact tool summary line.
+    Tool results are skipped to keep output clean.
+    """
     etype = event.get("type", "")
 
     if etype == "assistant":
@@ -66,28 +70,21 @@ def _format_event(event: dict) -> str:
             elif block.get("type") == "tool_use":
                 name = block.get("name", "?")
                 inp = block.get("input", {})
+                hint = ""
                 if name == "Bash":
-                    cmd = _html_escape(inp.get("command", "")[:200])
-                    parts.append(f"\n🔧 <b>{name}</b>\n<code>{cmd}</code>\n")
-                elif name in ("Read", "Write", "Edit", "Glob", "Grep"):
-                    path = _html_escape(inp.get("file_path", inp.get("pattern", "")))
-                    parts.append(f"\n📄 <b>{name}</b> <code>{path}</code>\n")
+                    hint = inp.get("command", "")[:80]
+                elif name in ("Read", "Write", "Edit"):
+                    hint = inp.get("file_path", "")
+                elif name in ("Glob", "Grep"):
+                    hint = inp.get("pattern", "")
+                if hint:
+                    parts.append(f"\n<code>› {name}: {_html_escape(hint)}</code>")
                 else:
-                    parts.append(f"\n⚙️ <b>{name}</b>\n")
-        return "".join(parts)
-
-    if etype == "user":
-        msg = event.get("message", {})
-        content_blocks = msg.get("content", [])
-        parts = []
-        for block in content_blocks:
-            if block.get("type") == "tool_result":
-                text = _html_escape(str(block.get("content", ""))[:150])
-                parts.append(f"<i>→ {text}</i>\n")
+                    parts.append(f"\n<code>› {name}</code>")
         return "".join(parts)
 
     if etype == "result":
-        return "\n✅ <b>done</b>\n"
+        return "\n\n✅ <b>done</b>"
 
     return ""
 
