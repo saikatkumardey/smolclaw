@@ -49,9 +49,17 @@ def build_auto_handover(chat_id: str, reason: str = "auto-rotated due to context
     if not messages:
         return ""
 
-    recent = messages[-10:]
+    # Take last 30 messages with 600 chars each for much better context retention
+    recent = messages[-30:]
     parts = ["CONTEXT (recent conversation):"]
     for msg in recent:
-        parts.append(f"[{msg.get('ts', '')[:16]}] {msg['role']}: {msg['content'][:300]}")
-    parts.append(f"\nPENDING: none ({reason})")
+        parts.append(f"[{msg.get('ts', '')[:16]}] {msg['role']}: {msg['content'][:600]}")
+
+    # Extract active topics from recent user messages for quick reference
+    user_msgs = [m for m in recent if m.get("role") == "user"]
+    if user_msgs:
+        last_topics = [m["content"][:100] for m in user_msgs[-5:]]
+        parts.append(f"\nRECENT USER TOPICS:\n" + "\n".join(f"- {t}" for t in last_topics))
+
+    parts.append(f"\nPENDING: Review recent topics above and resume if user refers to them. ({reason})")
     return "\n".join(parts)

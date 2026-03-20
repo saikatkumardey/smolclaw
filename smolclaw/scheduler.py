@@ -27,6 +27,11 @@ SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 _CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
 _SUBCONSCIOUS_TIMEOUT_SECONDS = 600  # 10 minutes — subprocess boot + MCP init + multi-turn tool loop
 
+# Auth failure tracking: consecutive auth errors trigger an alert
+_auth_fail_count = 0
+_AUTH_ALERT_THRESHOLD = 3  # alert after 3 consecutive auth failures
+_auth_alert_sent = False
+
 
 def _run_agent_in_thread(job_id: str, prompt: str, timeout: int) -> tuple[str | None, Exception | None]:
     """Run agent in a separate thread with timeout. Returns (result, exception)."""
@@ -74,9 +79,31 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = No
 
     if exc is not None:
         logger.error("Cron {} failed: {}", job_id, exc)
-        if deliver_to:
-            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
+        # Track consecutive auth failures and alert
+        global _auth_fail_count, _auth_alert_sent
+        exc_str = str(exc).lower()
+        if "401" in exc_str or "authentication" in exc_str or "oauth" in exc_str or "token" in exc_str and "expired" in exc_str:
+            _auth_fail_count += 1
+            if _auth_fail_count >= _AUTH_ALERT_THRESHOLD and not _auth_alert_sent and deliver_to:
+                _telegram.send(
+                    chat_id=deliver_to,
+                    message=f"⚠️ AUTH DOWN — {_auth_fail_count} consecutive auth failures. "
+                    f"OAuth token likely expired. All crons are failing. "
+                    f"Please run: claude /login"
+                )
+                _auth_alert_sent = True
+            elif deliver_to and not _auth_alert_sent:
+                _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
+        else:
+            _auth_fail_count = 0
+            _auth_alert_sent = False
+            if deliver_to:
+                _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
         return
+
+    # Auth recovered — reset failure tracking
+    _auth_fail_count = 0
+    _auth_alert_sent = False
 
     if not _should_suppress_result(job_id, result) and deliver_to:
         _telegram.send(chat_id=deliver_to, message=result)

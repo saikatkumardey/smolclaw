@@ -95,6 +95,17 @@ def system_prompt_full() -> str:
     if "Not set yet" in user_content:
         parts.append(_onboarding_block())
 
+    # Hard enforcement: never claim ignorance without checking logs first
+    parts.append(
+        "=== CRITICAL RULE ===\n"
+        "NEVER say \"I don't have context\", \"I don't recall\", or \"what are you referring to\" "
+        "without FIRST reading today's session log "
+        f"({workspace.HOME / 'sessions/'}YYYY-MM-DD.jsonl) and yesterday's log. "
+        "Also check MEMORY.md and any HANDOVER NOTE above. "
+        "If after checking all three you still lack context, say what you checked and ask for clarification. "
+        "A bare \"I don't have context\" is NEVER acceptable."
+    )
+
     return "\n\n".join(parts)
 
 

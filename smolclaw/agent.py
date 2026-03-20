@@ -36,7 +36,7 @@ from .tools_sdk import CUSTOM_TOOLS
 
 # Auto-rotation: when context exceeds this fraction, build a handover and reset
 _AUTO_ROTATE_THRESHOLD = 0.70
-_CONTEXT_WINDOW_TOKENS = 200_000
+_CONTEXT_WINDOW_TOKENS = 1_000_000
 
 # Task registry: task_id -> {task, description, started_at, status}
 _task_registry: dict[str, dict] = {}
