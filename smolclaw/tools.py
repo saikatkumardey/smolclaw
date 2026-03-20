@@ -37,8 +37,8 @@ def _send_telegram(chat_id: str, message: str) -> str:
                         return f"Failed: {r.text}"
                 try:
                     last_message_id = r.json().get("result", {}).get("message_id")
-                except Exception:
-                    pass
+                except (ValueError, KeyError):
+                    pass  # response may not contain message_id
         if last_message_id:
             return f"Sent. [message_id={last_message_id}]"
         return "Sent."
@@ -182,4 +182,5 @@ class TelegramSender:
     """Send Telegram messages. Used by scheduler for cron job delivery."""
 
     def send(self, chat_id: str, message: str) -> str:
+        """Send a message to the given Telegram chat."""
         return _send_telegram(chat_id, message)

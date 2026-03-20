@@ -26,6 +26,8 @@ _LP_PORT = 9222
 
 
 class BrowserManager:
+    """Lazy singleton managing Playwright browser contexts per chat session."""
+
     _instance: BrowserManager | None = None
 
     def __init__(self) -> None:
@@ -40,6 +42,7 @@ class BrowserManager:
 
     @classmethod
     def get(cls) -> BrowserManager:
+        """Return the singleton BrowserManager instance, creating it if needed."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -84,7 +87,7 @@ class BrowserManager:
                 try:
                     await self._playwright.stop()
                 except Exception:
-                    pass
+                    logger.debug("playwright stop failed during cleanup", exc_info=True)
                 self._playwright = None
             self._browser = None
             return False
@@ -156,7 +159,7 @@ class BrowserManager:
             try:
                 await ctx.close()
             except Exception:
-                pass
+                logger.debug("browser context close failed", exc_info=True)
 
     async def close_all(self) -> None:
         """Close all contexts, the browser, and Lightpanda subprocess if running."""
@@ -167,13 +170,13 @@ class BrowserManager:
                 try:
                     await self._browser.close()
                 except Exception:
-                    pass
+                    logger.debug("browser close failed", exc_info=True)
                 self._browser = None
             if self._playwright:
                 try:
                     await self._playwright.stop()
                 except Exception:
-                    pass
+                    logger.debug("playwright stop failed", exc_info=True)
                 self._playwright = None
             if self._lp_process and self._lp_process.poll() is None:
                 self._lp_process.terminate()

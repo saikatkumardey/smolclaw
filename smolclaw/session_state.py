@@ -11,6 +11,8 @@ _ZERO_TOKENS = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "
 
 
 class SessionState:
+    """Tracks per-session and daily token usage metrics."""
+
     def __init__(self, data: dict | None = None) -> None:
         self._data = data or {
             "version": 1,
@@ -24,6 +26,7 @@ class SessionState:
         self._data.setdefault("usage_today", {"date": None, **_ZERO_TOKENS})
 
     def record_turn(self, chat_id: str, result: ResultMessage) -> None:
+        """Record token usage from an agent turn and persist to disk."""
         now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
 
@@ -62,9 +65,11 @@ class SessionState:
         self._save()
 
     def get_session(self, chat_id: str) -> dict:
+        """Return usage data for a specific chat session."""
         return dict(self._data["sessions"].get(chat_id, {}))
 
     def get_usage_today(self) -> dict:
+        """Return aggregated token usage for the current UTC day."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         usage = self._data["usage_today"]
         if usage.get("date") != today:
@@ -72,6 +77,7 @@ class SessionState:
         return dict(usage)
 
     def to_dict(self) -> dict:
+        """Return the full state as a plain dictionary."""
         return dict(self._data)
 
     def _save(self) -> None:
@@ -79,5 +85,6 @@ class SessionState:
 
     @classmethod
     def load(cls) -> SessionState:
+        """Load session state from disk, or create a fresh instance."""
         data = workspace.read_json(workspace.SESSION_STATE)
         return cls(data if data else None)

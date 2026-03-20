@@ -7,15 +7,18 @@ from collections.abc import Callable
 
 
 def allowed_ids() -> set[str]:
+    """Return the set of allowed Telegram user IDs from the environment."""
     raw = os.getenv("ALLOWED_USER_IDS", "")
     return {cid.strip() for cid in raw.split(",") if cid.strip()}
 
 
 def is_allowed(chat_id: str | int) -> bool:
+    """Check whether a chat ID is in the allowlist."""
     return str(chat_id) in allowed_ids()
 
 
 def default_chat_id() -> str:
+    """Return the first allowed user ID, or empty string if none configured."""
     ids = allowed_ids()
     return next(iter(ids), "") if ids else ""
 

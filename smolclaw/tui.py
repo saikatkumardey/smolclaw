@@ -3,16 +3,17 @@ from __future__ import annotations
 
 import asyncio
 
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer
 from textual.widgets import Input, LoadingIndicator, Static
 from textual.worker import Worker, WorkerState
-from textual import work
 
-from smolclaw.agent import get_current_model, run as agent_run, reset_session
-from smolclaw.tools import TelegramSender
+from smolclaw.agent import get_current_model, reset_session
+from smolclaw.agent import run as agent_run
 from smolclaw.scheduler import setup_scheduler
+from smolclaw.tools import TelegramSender
 
 # ---------------------------------------------------------------------------
 # Tokyo Night palette
@@ -228,7 +229,7 @@ class SmolClawApp(App):
         # 2. Capture running loop (never use get_event_loop inside async)
         _loop = asyncio.get_running_loop()
         # 3. Patch TelegramSender.send → enqueue to TUI instead of Telegram
-        TelegramSender.send = lambda self_s, cid, msg: _loop.call_soon_threadsafe(
+        TelegramSender.send = lambda _self_s, cid, msg: _loop.call_soon_threadsafe(
             self._cron_queue.put_nowait, msg
         )
         # 4. Start APScheduler (cron jobs will call patched send)

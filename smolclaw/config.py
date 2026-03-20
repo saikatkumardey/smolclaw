@@ -11,6 +11,8 @@ _cache: tuple[str, float, Config] | None = None
 
 
 class Config:
+    """Agent configuration backed by ~/.smolclaw/smolclaw.json."""
+
     DEFAULTS: dict[str, Any] = {
         "model": "claude-sonnet-4-6",
         "effort": "low",
@@ -30,9 +32,11 @@ class Config:
             self._data.update(data)
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Get a config value by key, with optional default."""
         return self._data.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
+        """Set a config value, validate its type, and persist to disk."""
         global _cache
         if key not in self.DEFAULTS:
             raise KeyError(f"Unknown config key: {key!r}")
@@ -44,6 +48,7 @@ class Config:
         _cache = None  # invalidate on write
 
     def to_dict(self) -> dict:
+        """Return all config values as a plain dictionary."""
         return dict(self._data)
 
     def _save(self) -> None:
@@ -51,6 +56,7 @@ class Config:
 
     @classmethod
     def load(cls) -> Config:
+        """Load config from disk with caching based on file mtime."""
         global _cache
         path = workspace.CONFIG
         try:

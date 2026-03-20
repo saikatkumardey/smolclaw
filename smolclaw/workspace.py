@@ -74,6 +74,7 @@ def read_template(name: str) -> str:
 
 
 def read(path: Path, default: str = "") -> str:
+    """Read a text file, returning default if the file does not exist."""
     try:
         return path.read_text()
     except FileNotFoundError:

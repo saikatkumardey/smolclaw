@@ -52,14 +52,12 @@ def check_remote_version(source: str) -> str | None:
             if m:
                 return m.group(1)
     except Exception:
-        pass
+        pass  # network or HTTP error checking remote version
     return None
 
 
-def get_update_summary(source: str, old_version: str) -> str:
-    """Get version transition and changelog after a successful update."""
-    # Get new version from the freshly installed binary
-    new_version = None
+def _detect_new_version() -> str:
+    """Detect the newly installed smolclaw version via binary or uv tool list."""
     try:
         ver_result = subprocess.run(
             ["uv", "tool", "run", "smolclaw", "--", "--version"],
@@ -68,48 +66,62 @@ def get_update_summary(source: str, old_version: str) -> str:
         if ver_result.returncode == 0:
             m = re.search(r"(\d+\.\d+\.\d+)", ver_result.stdout)
             if m:
-                new_version = m.group(1)
-    except Exception:
+                return m.group(1)
+    except (OSError, subprocess.SubprocessError):
         pass
-
-    if not new_version:
-        try:
-            list_result = subprocess.run(
-                ["uv", "tool", "list"], capture_output=True, text=True, timeout=10,
-            )
-            for line in list_result.stdout.splitlines():
-                if "smolclaw" in line.lower():
-                    m = re.search(r"v?(\d+\.\d+\.\d+)", line)
-                    if m:
-                        new_version = m.group(1)
-                    break
-        except Exception:
-            pass
-
-    new_version = new_version or "unknown"
-
-    # Get recent commits from GitHub
-    changes = []
     try:
-        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-        if repo_match:
-            repo = repo_match.group(1).rstrip(".git")
-            import requests
-            resp = requests.get(
-                f"https://api.github.com/repos/{repo}/commits",
-                params={"per_page": "10"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                for commit in resp.json():
-                    msg = commit.get("commit", {}).get("message", "").split("\n")[0]
-                    if msg and not msg.startswith("bump version"):
-                        changes.append(f"- {msg}")
-                        if len(changes) >= 5:
-                            break
-    except Exception:
+        list_result = subprocess.run(
+            ["uv", "tool", "list"], capture_output=True, text=True, timeout=10,
+        )
+        for line in list_result.stdout.splitlines():
+            if "smolclaw" in line.lower():
+                m = re.search(r"v?(\d+\.\d+\.\d+)", line)
+                if m:
+                    return m.group(1)
+                break
+    except (OSError, subprocess.SubprocessError):
         pass
+    return "unknown"
 
+
+def _extract_repo(source: str) -> str | None:
+    """Extract GitHub owner/repo from a source URL."""
+    repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
+    if not repo_match:
+        return None
+    return repo_match.group(1).rstrip(".git")
+
+
+def _fetch_recent_changes(source: str, max_changes: int = 5) -> list[str]:
+    """Fetch recent non-version-bump commit messages from GitHub."""
+    repo = _extract_repo(source)
+    if not repo:
+        return []
+    try:
+        import requests
+        resp = requests.get(
+            f"https://api.github.com/repos/{repo}/commits",
+            params={"per_page": "10"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return []
+        changes = []
+        for commit in resp.json():
+            msg = commit.get("commit", {}).get("message", "").split("\n")[0]
+            if msg and not msg.startswith("bump version"):
+                changes.append(f"- {msg}")
+                if len(changes) >= max_changes:
+                    break
+        return changes
+    except Exception:
+        return []
+
+
+def get_update_summary(source: str, old_version: str) -> str:
+    """Get version transition and changelog after a successful update."""
+    new_version = _detect_new_version()
+    changes = _fetch_recent_changes(source)
     parts = [f"{old_version} -> {new_version}"]
     if changes:
         parts.append("\nRecent changes:\n" + "\n".join(changes))

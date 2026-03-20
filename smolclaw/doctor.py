@@ -75,120 +75,99 @@ def _dir_size(path: Path) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
-def _check_workspace() -> list[CheckResult]:
+def _check_subdirs(home: Path) -> list[CheckResult]:
+    """Check that all required subdirectories exist."""
     results: list[CheckResult] = []
-    home = workspace.HOME
-
-    # Home dir
-    if not home.is_dir():
-        results.append(CheckResult(
-            Status.FAIL,
-            f"Home directory missing ({home})",
-            "Run: smolclaw setup",
-        ))
-        return results  # skip remaining checks
-
-    results.append(CheckResult(Status.OK, f"Home directory exists ({home})"))
-
-    # Required subdirs
     for name in _REQUIRED_SUBDIRS:
         d = home / name
         if d.is_dir():
             results.append(CheckResult(Status.OK, f"{name}/ exists"))
         else:
-            results.append(CheckResult(
-                Status.FAIL,
-                f"{name}/ missing",
-                "Run: smolclaw setup",
-            ))
+            results.append(CheckResult(Status.FAIL, f"{name}/ missing", "Run: smolclaw setup"))
+    return results
 
-    # Core files exist + non-empty
+
+def _check_core_files(home: Path) -> list[CheckResult]:
+    """Check that core files exist and are non-empty."""
+    results: list[CheckResult] = []
     for name in _CORE_FILES:
         f = home / name
         if not f.exists():
-            results.append(CheckResult(
-                Status.FAIL,
-                f"{name} missing",
-                "Run: smolclaw setup",
-            ))
+            results.append(CheckResult(Status.FAIL, f"{name} missing", "Run: smolclaw setup"))
         elif f.stat().st_size == 0:
-            results.append(CheckResult(
-                Status.WARN,
-                f"{name} is empty (0 bytes) — may be corrupted",
-                "Delete and run: smolclaw setup",
-            ))
+            results.append(CheckResult(Status.WARN, f"{name} is empty (0 bytes) — may be corrupted", "Delete and run: smolclaw setup"))
         else:
             results.append(CheckResult(Status.OK, f"{name} present"))
+    return results
 
-    # crons.yaml valid YAML
+
+def _check_crons_yaml(home: Path) -> list[CheckResult]:
+    """Check that crons.yaml is valid YAML."""
     crons = home / "crons.yaml"
-    if crons.exists() and crons.stat().st_size > 0:
-        try:
-            yaml.safe_load(crons.read_text())
-            results.append(CheckResult(Status.OK, "crons.yaml is valid YAML"))
-        except yaml.YAMLError as e:
-            results.append(CheckResult(
-                Status.FAIL,
-                f"crons.yaml has invalid YAML: {e}",
-                "Fix the syntax manually",
-            ))
+    if not (crons.exists() and crons.stat().st_size > 0):
+        return []
+    try:
+        yaml.safe_load(crons.read_text())
+        return [CheckResult(Status.OK, "crons.yaml is valid YAML")]
+    except yaml.YAMLError as e:
+        return [CheckResult(Status.FAIL, f"crons.yaml has invalid YAML: {e}", "Fix the syntax manually")]
 
-    # .env exists + required vars
+
+def _check_env_file(home: Path) -> list[CheckResult]:
+    """Check .env exists and has required vars."""
+    results: list[CheckResult] = []
     env_path = home / ".env"
     if not env_path.exists():
-        results.append(CheckResult(
-            Status.FAIL,
-            ".env file missing",
-            "Run: smolclaw setup",
-        ))
-    else:
-        results.append(CheckResult(Status.OK, ".env file exists"))
-        env = dotenv_values(env_path)
-        for var in _REQUIRED_ENV_VARS:
-            val = env.get(var, "")
-            if val and val.strip():
-                results.append(CheckResult(Status.OK, f".env has {var}"))
-            else:
-                results.append(CheckResult(
-                    Status.FAIL,
-                    f".env missing or empty: {var}",
-                    "Run: smolclaw setup",
-                ))
+        results.append(CheckResult(Status.FAIL, ".env file missing", "Run: smolclaw setup"))
+        return results
+    results.append(CheckResult(Status.OK, ".env file exists"))
+    env = dotenv_values(env_path)
+    for var in _REQUIRED_ENV_VARS:
+        val = env.get(var, "")
+        if val and val.strip():
+            results.append(CheckResult(Status.OK, f".env has {var}"))
+        else:
+            results.append(CheckResult(Status.FAIL, f".env missing or empty: {var}", "Run: smolclaw setup"))
+    return results
 
-    # smolclaw.json (optional)
+
+def _check_json_config() -> list[CheckResult]:
+    """Check smolclaw.json and session_state.json validity."""
+    results: list[CheckResult] = []
     config_path = workspace.CONFIG
     if config_path.exists():
         try:
             data = json.loads(config_path.read_text())
             max_turns = data.get("max_turns")
             if isinstance(max_turns, int) and max_turns < 2:
-                results.append(CheckResult(
-                    Status.WARN,
-                    f"smolclaw.json: max_turns={max_turns} — agent may be crippled",
-                    "Increase max_turns or delete smolclaw.json to reset defaults",
-                ))
+                results.append(CheckResult(Status.WARN, f"smolclaw.json: max_turns={max_turns} — agent may be crippled", "Increase max_turns or delete smolclaw.json to reset defaults"))
             else:
                 results.append(CheckResult(Status.OK, "smolclaw.json is valid"))
         except (json.JSONDecodeError, ValueError) as e:
-            results.append(CheckResult(
-                Status.FAIL,
-                f"smolclaw.json has invalid JSON: {e}",
-                "Delete to reset to defaults",
-            ))
+            results.append(CheckResult(Status.FAIL, f"smolclaw.json has invalid JSON: {e}", "Delete to reset to defaults"))
 
-    # session_state.json (optional)
     ss_path = workspace.SESSION_STATE
     if ss_path.exists():
         try:
             json.loads(ss_path.read_text())
             results.append(CheckResult(Status.OK, "session_state.json is valid"))
         except (json.JSONDecodeError, ValueError) as e:
-            results.append(CheckResult(
-                Status.FAIL,
-                f"session_state.json has invalid JSON: {e}",
-                "Delete to reset",
-            ))
+            results.append(CheckResult(Status.FAIL, f"session_state.json has invalid JSON: {e}", "Delete to reset"))
+    return results
 
+
+def _check_workspace() -> list[CheckResult]:
+    home = workspace.HOME
+
+    if not home.is_dir():
+        return [CheckResult(Status.FAIL, f"Home directory missing ({home})", "Run: smolclaw setup")]
+
+    results: list[CheckResult] = [CheckResult(Status.OK, f"Home directory exists ({home})")]
+    results.extend(_check_subdirs(home))
+    results.extend(_check_core_files(home))
+    results.extend(_check_crons_yaml(home))
+    results.extend(_check_env_file(home))
+    results.extend(_check_json_config())
     return results
 
 
@@ -197,202 +176,148 @@ def _check_workspace() -> list[CheckResult]:
 # ---------------------------------------------------------------------------
 
 
-def _check_runtime() -> list[CheckResult]:
-    results: list[CheckResult] = []
-    env_path = workspace.HOME / ".env"
-    env = dotenv_values(env_path) if env_path.exists() else {}
-
-    # Telegram token
+def _check_telegram_token(env: dict) -> list[CheckResult]:
+    """Verify Telegram bot token via API call."""
     token = env.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
-        results.append(CheckResult(
-            Status.WARN,
-            "No Telegram bot token — skipping token check",
-            "Run: smolclaw setup",
-        ))
-    else:
-        try:
-            resp = requests.get(
-                f"https://api.telegram.org/bot{token}/getMe",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json().get("result", {})
-                username = data.get("username", "unknown")
-                results.append(CheckResult(
-                    Status.OK,
-                    f"Telegram bot token valid (@{username})",
-                ))
-            else:
-                results.append(CheckResult(
-                    Status.FAIL,
-                    f"Telegram bot token rejected (HTTP {resp.status_code})",
-                    "Run: smolclaw setup",
-                ))
-        except Exception as e:
-            results.append(CheckResult(
-                Status.WARN,
-                f"Could not verify Telegram token: {e}",
-                "Check your network connection",
-            ))
+        return [CheckResult(Status.WARN, "No Telegram bot token — skipping token check", "Run: smolclaw setup")]
+    try:
+        resp = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+        if resp.status_code == 200:
+            username = resp.json().get("result", {}).get("username", "unknown")
+            return [CheckResult(Status.OK, f"Telegram bot token valid (@{username})")]
+        return [CheckResult(Status.FAIL, f"Telegram bot token rejected (HTTP {resp.status_code})", "Run: smolclaw setup")]
+    except Exception as e:
+        return [CheckResult(Status.WARN, f"Could not verify Telegram token: {e}", "Check your network connection")]
 
-    # Claude auth
+
+def _check_claude_auth(env: dict) -> CheckResult:
+    """Check for Claude API key or CLI auth."""
     api_key = env.get("ANTHROPIC_API_KEY", "").strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if api_key:
-        results.append(CheckResult(Status.OK, "ANTHROPIC_API_KEY is set"))
-    else:
-        claude_cli = shutil.which("claude")
-        if claude_cli:
-            results.append(CheckResult(
-                Status.WARN,
-                "No API key — claude CLI found (login-based auth, unverifiable)",
-            ))
-        else:
-            results.append(CheckResult(
-                Status.FAIL,
-                "No Claude authentication found",
-                "Run: smolclaw setup-token",
-            ))
+        return CheckResult(Status.OK, "ANTHROPIC_API_KEY is set")
+    if shutil.which("claude"):
+        return CheckResult(Status.WARN, "No API key — claude CLI found (login-based auth, unverifiable)")
+    return CheckResult(Status.FAIL, "No Claude authentication found", "Run: smolclaw setup-token")
 
-    # Model
+
+def _resolve_model(env: dict) -> str:
+    """Resolve the active model from env, config, or default."""
     model = env.get("SMOLCLAW_MODEL", "").strip() or os.environ.get("SMOLCLAW_MODEL", "").strip()
-    # Also check smolclaw.json
     if not model:
         config_path = workspace.CONFIG
         if config_path.exists():
             try:
-                data = json.loads(config_path.read_text())
-                model = data.get("model", "")
+                model = json.loads(config_path.read_text()).get("model", "")
             except (json.JSONDecodeError, ValueError):
                 pass
-    if not model:
-        model = "claude-sonnet-4-6"  # default
+    return model or "claude-sonnet-4-6"
 
+
+def _check_model(env: dict) -> CheckResult:
+    """Check that the configured model is recognized."""
+    model = _resolve_model(env)
     if model in _KNOWN_MODELS:
-        results.append(CheckResult(Status.OK, f"Model: {model}"))
-    else:
-        results.append(CheckResult(
-            Status.WARN,
-            f"Model '{model}' is not a known model ID (may still work)",
-        ))
+        return CheckResult(Status.OK, f"Model: {model}")
+    return CheckResult(Status.WARN, f"Model '{model}' is not a known model ID (may still work)")
 
-    # Custom tools
+
+def _check_single_tool(path: Path) -> CheckResult:
+    """Validate a single custom tool file."""
+    try:
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:
+        return CheckResult(Status.FAIL, f"Tool {path.name} failed to load: {e}", "Fix the error or remove the file")
+    if not hasattr(mod, "SCHEMA"):
+        return CheckResult(Status.FAIL, f"Tool {path.name}: missing SCHEMA", "Add SCHEMA dict or remove the file")
+    if not hasattr(mod, "execute"):
+        return CheckResult(Status.FAIL, f"Tool {path.name}: missing execute()", "Add execute() function or remove the file")
+    name = mod.SCHEMA.get("function", {}).get("name", "?")
+    return CheckResult(Status.OK, f"Tool {path.name} loads OK ({name})")
+
+
+def _check_custom_tools() -> list[CheckResult]:
+    """Validate all custom tools in the tools directory."""
     tools_dir = workspace.TOOLS_DIR
-    if tools_dir.is_dir():
-        py_files = sorted(tools_dir.glob("*.py"))
-        if not py_files:
-            results.append(CheckResult(Status.OK, "No custom tools (tools/ empty)"))
-        else:
-            for path in py_files:
-                try:
-                    spec = importlib.util.spec_from_file_location(path.stem, path)
-                    mod = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mod)
-                    if not hasattr(mod, "SCHEMA"):
-                        results.append(CheckResult(
-                            Status.FAIL,
-                            f"Tool {path.name}: missing SCHEMA",
-                            "Add SCHEMA dict or remove the file",
-                        ))
-                        continue
-                    if not hasattr(mod, "execute"):
-                        results.append(CheckResult(
-                            Status.FAIL,
-                            f"Tool {path.name}: missing execute()",
-                            "Add execute() function or remove the file",
-                        ))
-                        continue
-                    fn_def = mod.SCHEMA.get("function", {})
-                    name = fn_def.get("name", "?")
-                    results.append(CheckResult(
-                        Status.OK,
-                        f"Tool {path.name} loads OK ({name})",
-                    ))
-                except Exception as e:
-                    results.append(CheckResult(
-                        Status.FAIL,
-                        f"Tool {path.name} failed to load: {e}",
-                        "Fix the error or remove the file",
-                    ))
+    if not tools_dir.is_dir():
+        return []
+    py_files = sorted(tools_dir.glob("*.py"))
+    if not py_files:
+        return [CheckResult(Status.OK, "No custom tools (tools/ empty)")]
+    return [_check_single_tool(path) for path in py_files]
 
-    # Browser backend: prefer Lightpanda, fall back to Chromium
+
+def _check_browser_backend() -> list[CheckResult]:
+    """Check availability of Lightpanda and/or Playwright Chromium."""
+    results: list[CheckResult] = []
     lp_bin = shutil.which("lightpanda")
     if lp_bin:
         results.append(CheckResult(Status.OK, "Lightpanda found (preferred browser backend)"))
     else:
-        results.append(CheckResult(
-            Status.OK,
-            "Lightpanda not found — will use Chromium",
-            "Optional: install Lightpanda for faster, lighter browsing: https://github.com/lightpanda-io/browser",
-        ))
+        results.append(CheckResult(Status.OK, "Lightpanda not found — will use Chromium", "Optional: install Lightpanda for faster, lighter browsing: https://github.com/lightpanda-io/browser"))
 
     pw_check = shutil.which("playwright")
     if pw_check:
-        pw_result = subprocess.run(
-            ["playwright", "install", "--dry-run", "chromium"],
-            capture_output=True, text=True, timeout=10,
-        )
+        pw_result = subprocess.run(["playwright", "install", "--dry-run", "chromium"], capture_output=True, text=True, timeout=10)
         if pw_result.returncode == 0:
             results.append(CheckResult(Status.OK, "Playwright Chromium installed (fallback)"))
         elif not lp_bin:
-            results.append(CheckResult(
-                Status.WARN,
-                "Playwright Chromium not installed — browser tools won't work",
-                "Run: playwright install chromium --with-deps",
-            ))
+            results.append(CheckResult(Status.WARN, "Playwright Chromium not installed — browser tools won't work", "Run: playwright install chromium --with-deps"))
         else:
             results.append(CheckResult(Status.OK, "Playwright Chromium not installed (Lightpanda available)"))
     elif not lp_bin:
-        results.append(CheckResult(
-            Status.WARN,
-            "No browser backend available — browser tools won't work",
-            "Install Lightpanda or run: playwright install chromium --with-deps",
-        ))
+        results.append(CheckResult(Status.WARN, "No browser backend available — browser tools won't work", "Install Lightpanda or run: playwright install chromium --with-deps"))
+    return results
 
-    # TTS dependencies (edge-tts + ffmpeg)
+
+def _check_tts_deps() -> CheckResult:
+    """Check for edge-tts and ffmpeg availability."""
     edge_tts = shutil.which("edge-tts")
     ffmpeg = shutil.which("ffmpeg")
     if edge_tts and ffmpeg:
-        results.append(CheckResult(Status.OK, "edge-tts and ffmpeg available (TTS ready)"))
-    else:
-        missing = []
-        if not edge_tts:
-            missing.append("edge-tts")
-        if not ffmpeg:
-            missing.append("ffmpeg")
-        results.append(CheckResult(
-            Status.WARN,
-            f"Missing {', '.join(missing)} — voice messages (telegram_send_voice) won't work",
-            "Install: pip install edge-tts && apt install ffmpeg",
-        ))
+        return CheckResult(Status.OK, "edge-tts and ffmpeg available (TTS ready)")
+    missing = [name for name, present in [("edge-tts", edge_tts), ("ffmpeg", ffmpeg)] if not present]
+    return CheckResult(Status.WARN, f"Missing {', '.join(missing)} — voice messages (telegram_send_voice) won't work", "Install: pip install edge-tts && apt install ffmpeg")
 
-    # Cron expressions
+
+def _check_cron_expressions() -> list[CheckResult]:
+    """Validate cron expressions in crons.yaml."""
     crons_path = workspace.CRONS
-    if crons_path.exists() and crons_path.stat().st_size > 0:
+    if not (crons_path.exists() and crons_path.stat().st_size > 0):
+        return []
+    try:
+        data = yaml.safe_load(crons_path.read_text()) or {}
+    except yaml.YAMLError:
+        return []  # already reported in workspace checks
+    results: list[CheckResult] = []
+    for job in data.get("jobs", []):
+        cron_expr = job.get("cron", "")
+        if not cron_expr:
+            continue
+        job_id = job.get("id", "?")
         try:
-            data = yaml.safe_load(crons_path.read_text()) or {}
-            jobs = data.get("jobs", [])
-            for job in jobs:
-                cron_expr = job.get("cron", "")
-                job_id = job.get("id", "?")
-                if not cron_expr:
-                    continue
-                try:
-                    from apscheduler.triggers.cron import CronTrigger
-                    CronTrigger.from_crontab(cron_expr)
-                    results.append(CheckResult(
-                        Status.OK,
-                        f"Cron '{job_id}': expression valid ({cron_expr})",
-                    ))
-                except Exception as e:
-                    results.append(CheckResult(
-                        Status.FAIL,
-                        f"Cron '{job_id}': invalid expression '{cron_expr}' — {e}",
-                        "Fix the cron expression in crons.yaml",
-                    ))
-        except yaml.YAMLError:
-            pass  # already reported in workspace checks
+            from apscheduler.triggers.cron import CronTrigger
+            CronTrigger.from_crontab(cron_expr)
+            results.append(CheckResult(Status.OK, f"Cron '{job_id}': expression valid ({cron_expr})"))
+        except Exception as e:
+            results.append(CheckResult(Status.FAIL, f"Cron '{job_id}': invalid expression '{cron_expr}' — {e}", "Fix the cron expression in crons.yaml"))
+    return results
 
+
+def _check_runtime() -> list[CheckResult]:
+    env_path = workspace.HOME / ".env"
+    env = dotenv_values(env_path) if env_path.exists() else {}
+
+    results: list[CheckResult] = []
+    results.extend(_check_telegram_token(env))
+    results.append(_check_claude_auth(env))
+    results.append(_check_model(env))
+    results.extend(_check_custom_tools())
+    results.extend(_check_browser_backend())
+    results.append(_check_tts_deps())
+    results.extend(_check_cron_expressions())
     return results
 
 

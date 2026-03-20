@@ -20,6 +20,7 @@ from .tools import (
     _set_reaction,
     _text_to_voice,
 )
+from .tools_browser import browse, browser_click, browser_eval, browser_screenshot, browser_type
 from .version import check_remote_version as _check_remote_version
 from .version import get_update_summary as _get_update_summary
 from .version import local_version as _local_version
@@ -163,43 +164,44 @@ async def read_skill_tool(args: dict) -> dict:
     return _text(content)
 
 
-@tool(
-    "search_sessions",
-    "Search past conversation logs. Use this before claiming you don't remember something. "
-    "Returns matching messages from session history.",
-    {"query": str, "date": str, "chat_id": str},
-)
-async def search_sessions(args: dict) -> dict:
-    query_str = str(args.get("query", ""))
-    date_filter = str(args.get("date", ""))  # optional YYYY-MM-DD
-    chat_filter = str(args.get("chat_id", ""))  # optional
+async def _try_qmd_search(query_str: str) -> str | None:
+    """Try semantic search via qmd. Returns result text or None."""
+    if not (shutil.which("qmd") and len(query_str) > 3):
+        return None
+    try:
+        qmd_result = await asyncio.to_thread(
+            subprocess.run,
+            ["qmd", "search", query_str, "--limit", "10"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if qmd_result.returncode == 0 and qmd_result.stdout.strip():
+            return f"[qmd results]\n{qmd_result.stdout.strip()}"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
 
-    sessions_dir = workspace.HOME / "sessions"
-    if not sessions_dir.exists():
-        return _text("No session logs found.")
 
-    # Determine files to search
-    if date_filter:
-        files = [sessions_dir / f"{date_filter}.jsonl"]
-    else:
-        files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:7]
+def _entry_matches(entry: dict, query_lower: str, chat_filter: str) -> bool:
+    """Return True if a session log entry matches the search criteria."""
+    if entry.get("role") not in ("user", "assistant"):
+        return False
+    if chat_filter and entry.get("chat_id") != chat_filter:
+        return False
+    content = entry.get("content", "")
+    return isinstance(content, str) and query_lower in content.lower()
 
-    # Try qmd first (semantic search) if available and query is non-trivial
-    if shutil.which("qmd") and len(query_str) > 3:
-        try:
-            qmd_result = await asyncio.to_thread(
-                subprocess.run,
-                ["qmd", "search", query_str, "--limit", "10"],
-                capture_output=True, text=True, timeout=30,
-            )
-            if qmd_result.returncode == 0 and qmd_result.stdout.strip():
-                return _text(f"[qmd results]\n{qmd_result.stdout.strip()}")
-        except Exception:
-            pass  # fall through to grep
 
-    # Fallback: grep through JSONL session logs
+def _format_entry(entry: dict) -> str:
+    """Format a session log entry for display."""
+    ts = entry.get("ts", "")[:16]
+    cid = entry.get("chat_id", "")
+    content = entry.get("content", "")[:300]
+    return f"[{ts}] ({cid}) {entry['role']}: {content}"
+
+
+def _grep_session_files(files: list, query_lower: str, chat_filter: str, max_results: int = 20) -> list[str]:
+    """Search through JSONL session log files for matching entries."""
     results = []
-    query_lower = query_str.lower()
     for f in files:
         if not f.exists():
             continue
@@ -208,97 +210,44 @@ async def search_sessions(args: dict) -> dict:
                 if not line.strip():
                     continue
                 entry = json.loads(line)
-                if entry.get("role") not in ("user", "assistant"):
-                    continue
-                if chat_filter and entry.get("chat_id") != chat_filter:
-                    continue
-                content = entry.get("content", "")
-                if not isinstance(content, str):
-                    continue
-                if query_lower in content.lower():
-                    ts = entry.get("ts", "")[:16]
-                    cid = entry.get("chat_id", "")
-                    snippet = content[:300]
-                    results.append(f"[{ts}] ({cid}) {entry['role']}: {snippet}")
-                    if len(results) >= 20:
-                        break
+                if _entry_matches(entry, query_lower, chat_filter):
+                    results.append(_format_entry(entry))
+                    if len(results) >= max_results:
+                        return results
         except Exception:
             continue
-        if len(results) >= 20:
-            break
+    return results
 
+
+@tool(
+    "search_sessions",
+    "Search past conversation logs. Use this before claiming you don't remember something. "
+    "Returns matching messages from session history.",
+    {"query": str, "date": str, "chat_id": str},
+)
+async def search_sessions(args: dict) -> dict:
+    query_str = str(args.get("query", ""))
+    date_filter = str(args.get("date", ""))
+    chat_filter = str(args.get("chat_id", ""))
+
+    sessions_dir = workspace.HOME / "sessions"
+    if not sessions_dir.exists():
+        return _text("No session logs found.")
+
+    if date_filter:
+        files = [sessions_dir / f"{date_filter}.jsonl"]
+    else:
+        files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:7]
+
+    qmd_result = await _try_qmd_search(query_str)
+    if qmd_result:
+        return _text(qmd_result)
+
+    results = _grep_session_files(files, query_str.lower(), chat_filter)
     if not results:
         return _text(f"No matches for '{query_str}' in recent session logs.")
     return _text("\n\n".join(results))
 
-
-async def _browser_call(method: str, *args) -> dict:
-    """Shared helper for simple browser tool calls."""
-    from .browser import BrowserManager
-    try:
-        result = await getattr(BrowserManager.get(), method)(*args)
-        return _text(str(result) if isinstance(result, str) else f"OK: {result}")
-    except Exception as e:
-        return _text(f"Browser error: {e}")
-
-
-@tool(
-    "browse",
-    "Navigate to a URL in a headless browser. Renders JavaScript. "
-    "Returns page title and visible text content. Use for JS-heavy pages that WebFetch can't read. "
-    "Creates a persistent browser session per chat_id — subsequent browser_* calls reuse it.",
-    {"chat_id": str, "url": str},
-)
-async def browse(args: dict) -> dict:
-    from .browser import BrowserManager
-
-    try:
-        result = await BrowserManager.get().navigate(str(args["chat_id"]), str(args["url"]))
-        return _text(f"Title: {result['title']}\nURL: {result['url']}\n\n{result['text']}")
-    except Exception as e:
-        return _text(f"Browser error: {e}")
-
-
-@tool(
-    "browser_click",
-    "Click an element on the current browser page by CSS selector.",
-    {"chat_id": str, "selector": str},
-)
-async def browser_click(args: dict) -> dict:
-    return await _browser_call("click", str(args["chat_id"]), str(args["selector"]))
-
-
-@tool(
-    "browser_type",
-    "Type text into a form field by CSS selector. Clears existing content first.",
-    {"chat_id": str, "selector": str, "text": str},
-)
-async def browser_type(args: dict) -> dict:
-    return await _browser_call("type_text", str(args["chat_id"]), str(args["selector"]), str(args["text"]))
-
-
-@tool(
-    "browser_screenshot",
-    "Take a screenshot of the current browser page. Returns the file path. "
-    "Use Read tool to view the image or telegram_send_file to send it.",
-    {"chat_id": str},
-)
-async def browser_screenshot(args: dict) -> dict:
-    from .browser import BrowserManager
-    try:
-        path = await BrowserManager.get().screenshot(str(args["chat_id"]))
-        return _text(f"Screenshot saved: {path}")
-    except Exception as e:
-        return _text(f"Browser error: {e}")
-
-
-@tool(
-    "browser_eval",
-    "Execute JavaScript on the current browser page and return the result.",
-    {"chat_id": str, "javascript": str},
-)
-async def browser_eval(args: dict) -> dict:
-    return await _browser_call("evaluate", str(args["chat_id"]), str(args["javascript"]))
 
 
 @tool(
@@ -432,6 +381,40 @@ async def disable_tool(args: dict) -> dict:
     return _text(f"Disabled {name} → {disabled.name}. Rename back to re-enable.")
 
 
+def _subconscious_list() -> dict:
+    from . import subconscious
+    threads = subconscious.load_threads()
+    if not threads:
+        return _text("No open threads.")
+    import yaml
+    return _text(yaml.dump(threads, default_flow_style=False))
+
+
+def _subconscious_resolve(args: dict) -> dict:
+    from . import subconscious
+    thread_id = str(args.get("thread_id", ""))
+    if not thread_id:
+        return _text("Error: thread_id required for resolve action.")
+    removed = subconscious.resolve_thread(thread_id)
+    return _text(f"Resolved thread: {thread_id}") if removed else _text(f"Thread not found: {thread_id}")
+
+
+def _subconscious_add(args: dict) -> dict:
+    from . import subconscious
+    raw = str(args.get("thread_data", "") or "")
+    if not raw:
+        return _text("Error: thread_data (JSON string) required for add action.")
+    try:
+        thread_data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return _text(f"Error: invalid JSON in thread_data: {e}")
+    try:
+        tid = subconscious.add_thread(thread_data)
+    except ValueError as e:
+        return _text(f"Error: {e}")
+    return _text(f"Added thread: {tid}")
+
+
 @tool(
     "update_subconscious",
     "Manage the subconscious reflection log. Actions: 'add' (with thread_data JSON), "
@@ -439,40 +422,12 @@ async def disable_tool(args: dict) -> dict:
     {"action": str, "thread_id": str, "thread_data": str},
 )
 async def update_subconscious(args: dict) -> dict:
-    from . import subconscious
-
     action = str(args.get("action", ""))
-    if action == "list":
-        threads = subconscious.load_threads()
-        if not threads:
-            return _text("No open threads.")
-        import yaml
-        return _text(yaml.dump(threads, default_flow_style=False))
-
-    if action == "resolve":
-        thread_id = str(args.get("thread_id", ""))
-        if not thread_id:
-            return _text("Error: thread_id required for resolve action.")
-        removed = subconscious.resolve_thread(thread_id)
-        if removed:
-            return _text(f"Resolved thread: {thread_id}")
-        return _text(f"Thread not found: {thread_id}")
-
-    if action == "add":
-        raw = str(args.get("thread_data", "") or "")
-        if not raw:
-            return _text("Error: thread_data (JSON string) required for add action.")
-        try:
-            thread_data = json.loads(raw)
-        except json.JSONDecodeError as e:
-            return _text(f"Error: invalid JSON in thread_data: {e}")
-        try:
-            tid = subconscious.add_thread(thread_data)
-        except ValueError as e:
-            return _text(f"Error: {e}")
-        return _text(f"Added thread: {tid}")
-
-    return _text(f"Error: unknown action {action!r}. Use 'add', 'resolve', or 'list'.")
+    dispatch = {"list": _subconscious_list, "resolve": _subconscious_resolve, "add": _subconscious_add}
+    handler = dispatch.get(action)
+    if handler is None:
+        return _text(f"Error: unknown action {action!r}. Use 'add', 'resolve', or 'list'.")
+    return handler(args) if action != "list" else handler()
 
 
 @tool(

@@ -3,40 +3,43 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from pathlib import Path
 
-import yaml
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from . import workspace
 from .agent import (
-    _CONTEXT_WINDOW_TOKENS,
-    AVAILABLE_EFFORTS,
-    AVAILABLE_MODELS,
-    get_current_effort,
-    get_current_model,
-    get_last_result,
     interrupt_session,
-    list_tasks,
     reset_session,
     session_log,
-    set_effort,
-    set_model,
 )
 from .agent import (
     run as agent_run,
 )
 from .auth import require_allowed
-from .session_state import SessionState
-from .tool_loader import load_custom_tools
+
+# Re-export all command handlers so existing imports from handlers still work
+from .handlers_commands import (  # noqa: F401
+    CONTEXT_WARN_THRESHOLD,
+    _context_fill,
+    _format_last_turn,
+    on_context,
+    on_crons,
+    on_effort,
+    on_effort_callback,
+    on_efforts,
+    on_help,
+    on_model,
+    on_model_callback,
+    on_models,
+    on_restart,
+    on_status,
+    on_tasks,
+    on_update,
+)
 from .tools import MAX_TG_MSG
-from .tools_sdk import CUSTOM_TOOLS
-from .version import check_remote_version as _check_remote_version
-from .version import get_update_summary as _get_update_summary
-from .version import local_version as _local_version
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +52,7 @@ def _to_telegram_md(text: str) -> str:
 
 
 def _is_tool_noise(reply: str) -> bool:
-    """Return True if the reply is a default tool-only response with no real content.
-
-    When the agent only calls tools and returns no text, agent.run() produces
-    "Done. (used: ...)" or "(no response)". These should not be shown to the user —
-    the placeholder should just disappear silently.
-    """
+    """Return True if the reply is a default tool-only response with no real content."""
     return reply == "(no response)" or reply.startswith("Done. (used:")
 
 
@@ -99,7 +97,6 @@ class _TypingLoop:
                 pass
 
 
-
 async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
     """Send/edit with Markdown, falling back to plain text on failure."""
     fn = target.edit_text if edit else target.reply_text
@@ -109,13 +106,8 @@ async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
         await fn(text)
 
 
-
 async def _reply_chunked(message, text: str, edit_message=None) -> None:
-    """Send text in ≤MAX_TG_MSG-char chunks with Markdown, falling back to plain text.
-
-    If edit_message is provided, the first chunk edits that message instead of
-    sending a new one (reduces message spam).
-    """
+    """Send text in <=MAX_TG_MSG-char chunks with Markdown, falling back to plain text."""
     formatted = _to_telegram_md(text)
     chunks = [formatted[i : i + MAX_TG_MSG] for i in range(0, max(len(formatted), 1), MAX_TG_MSG)]
     for idx, chunk in enumerate(chunks):
@@ -123,10 +115,41 @@ async def _reply_chunked(message, text: str, edit_message=None) -> None:
             try:
                 await _send_md_msg(edit_message, chunk, edit=True)
             except Exception:
-                # Edit failed (message too old, deleted, etc.) — fall back to reply
                 await _send_md_msg(message, chunk)
         else:
             await _send_md_msg(message, chunk)
+
+
+def _inject_reply_id(agent_msg: str, chat_id: str, reply_id: int) -> str:
+    """Inject reply_id into the agent message metadata if not already present."""
+    tag = f"[chat_id={chat_id}"
+    if tag in agent_msg and "reply_id=" not in agent_msg:
+        return agent_msg.replace(tag, f"[chat_id={chat_id} reply_id={reply_id}", 1)
+    return agent_msg
+
+
+async def _send_reply(bot, message, chat_id: str, reply: str, placeholder) -> None:
+    """Send the agent reply via the appropriate channel."""
+    if message or placeholder:
+        await _reply_chunked(message, reply, edit_message=placeholder)
+    else:
+        fmt = _to_telegram_md(reply)
+        try:
+            await bot.send_message(chat_id=chat_id, text=fmt, parse_mode="Markdown")
+        except Exception:
+            await bot.send_message(chat_id=chat_id, text=fmt)
+
+
+async def _send_error(message, placeholder, error_msg: str) -> None:
+    """Send an error message via placeholder edit or message reply."""
+    if placeholder:
+        try:
+            await placeholder.edit_text(error_msg)
+            return
+        except Exception:
+            logger.debug("failed to edit placeholder with error", exc_info=True)
+    if message:
+        await message.reply_text(error_msg)
 
 
 async def _run_agent_and_reply(
@@ -138,12 +161,7 @@ async def _run_agent_and_reply(
     try:
         if use_placeholder:
             placeholder = await message.reply_text("...")
-            if f"[chat_id={chat_id}" in agent_msg and "reply_id=" not in agent_msg:
-                agent_msg = agent_msg.replace(
-                    f"[chat_id={chat_id}",
-                    f"[chat_id={chat_id} reply_id={placeholder.message_id}",
-                    1,
-                )
+            agent_msg = _inject_reply_id(agent_msg, chat_id, placeholder.message_id)
         async with _TypingLoop(bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         if not reply or _is_tool_noise(reply):
@@ -151,32 +169,16 @@ async def _run_agent_and_reply(
                 try:
                     await placeholder.delete()
                 except Exception:
-                    pass
+                    logger.debug("failed to delete placeholder message", exc_info=True)
             return
         if context_warn:
             _used, fill = _context_fill(chat_id)
             if fill >= CONTEXT_WARN_THRESHOLD:
                 reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
-        if message or placeholder:
-            await _reply_chunked(message, reply, edit_message=placeholder)
-        else:
-            # No message object (e.g. reaction handler) — send via bot directly
-            fmt = _to_telegram_md(reply)
-            try:
-                await bot.send_message(chat_id=chat_id, text=fmt, parse_mode="Markdown")
-            except Exception:
-                await bot.send_message(chat_id=chat_id, text=fmt)
+        await _send_reply(bot, message, chat_id, reply, placeholder)
     except Exception as e:
         logger.exception("Error: %s", e)
-        error_msg = _classify_error(e)
-        if placeholder:
-            try:
-                await placeholder.edit_text(error_msg)
-            except Exception:
-                if message:
-                    await message.reply_text(error_msg)
-        elif message:
-            await message.reply_text(error_msg)
+        await _send_error(message, placeholder, _classify_error(e))
 
 
 @require_allowed
@@ -185,79 +187,6 @@ async def on_start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "SmolClaw online. I'm your personal AI agent — "
         "just send a message or type /help to see what I can do."
     )
-
-
-@require_allowed
-async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    text = (
-        "SmolClaw — your personal AI agent.\n\n"
-        "I can run shell commands, read/write files, search the web, "
-        "and learn any CLI tool you point me at.\n\n"
-        "Commands:\n"
-        "/help — this message\n"
-        "/status — current config and stats\n"
-        "/model — show current Claude model\n"
-        "/models — switch Claude model\n"
-        "/effort — switch thinking effort (low/medium/high/max)\n"
-        "/reset — clear conversation history\n"
-        "/cancel — cancel the current running task\n"
-        "/tasks — list background tasks\n"
-        "/crons — list scheduled jobs\n"
-        "/reload — reload skills and memory\n"
-        "/restart — restart the bot process\n"
-        "/update — update smolclaw and restart\n"
-        "/btw — ask a side question (no conversation history)\n"
-        "/context — show context window usage\n\n"
-        "Or just talk to me."
-    )
-    await update.message.reply_text(text)
-
-
-@require_allowed
-async def on_status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    dynamic_tools = load_custom_tools()
-    builtin_count = 5  # Bash, Read, Write, WebSearch, WebFetch
-    custom_sdk_count = len(CUSTOM_TOOLS) + 1  # +1 for spawn_task
-    skills_dir = workspace.SKILLS_DIR
-    skill_count = sum(1 for d in skills_dir.iterdir() if d.is_dir()) if skills_dir.exists() else 0
-    memory_path = workspace.MEMORY
-    try:
-        memory_lines = len(memory_path.read_text().splitlines())
-    except FileNotFoundError:
-        memory_lines = 0
-    current_model = get_current_model()
-    current_effort = get_current_effort()
-    dynamic_names = ", ".join(t.name for t in dynamic_tools) if dynamic_tools else "none"
-    result = get_last_result(str(update.effective_chat.id))
-    cost_line = ""
-    if result:
-        usage = result.usage or {}
-        inp = usage.get("input_tokens", 0)
-        out = usage.get("output_tokens", 0)
-        cache_read = usage.get("cache_read_input_tokens", 0)
-        cache_write = usage.get("cache_creation_input_tokens", 0)
-        cache_str = f" | cache ↓{cache_read} ↑{cache_write}" if (cache_read or cache_write) else ""
-        cost_line = f"\nLast turn: {inp}in/{out}out | {result.num_turns} turns | {result.duration_ms}ms{cache_str}"
-    usage_today = SessionState.load().get_usage_today()
-    today_line = (
-        f"\nToday: {usage_today['input_tokens']}in/{usage_today['output_tokens']}out | {usage_today['turns']} turns"
-    )
-    from .browser import BrowserManager
-    browser_backend = BrowserManager.get().backend
-    text = (
-        f"Model: {current_model}\n"
-        f"Effort: {current_effort}\n"
-        f"Workspace: {workspace.HOME}\n"
-        f"Browser: {browser_backend}\n"
-        f"Built-in tools: {builtin_count}\n"
-        f"Custom SDK tools: {custom_sdk_count}\n"
-        f"Dynamic tools: {len(dynamic_tools)} ({dynamic_names})\n"
-        f"Skills: {skill_count}\n"
-        f"Memory: {memory_lines} lines"
-        f"{cost_line}"
-        f"{today_line}"
-    )
-    await update.message.reply_text(text)
 
 
 @require_allowed
@@ -280,227 +209,6 @@ async def on_reload(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = str(update.effective_chat.id)
     await reset_session(chat_id)
     await update.message.reply_text("Reloaded. Next message picks up fresh skills and memory.")
-
-
-
-@require_allowed
-async def on_tasks(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    tasks = list_tasks()
-    if not tasks:
-        await update.message.reply_text("No background tasks.")
-        return
-    lines = []
-    for t in tasks:
-        icon = "running" if t["status"] == "running" else t["status"]
-        lines.append(f"{t['id']} [{icon}] {t['elapsed_s']}s — {t['description']}")
-    await update.message.reply_text("\n".join(lines))
-
-
-
-@require_allowed
-async def on_crons(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    crons_path = workspace.CRONS
-    if not crons_path.exists():
-        await update.message.reply_text("No crons.yaml found.")
-        return
-    data = yaml.safe_load(crons_path.read_text()) or {}
-    jobs = data.get("jobs", [])
-    if not jobs:
-        await update.message.reply_text("No scheduled jobs.")
-        return
-    lines = []
-    for job in jobs:
-        jid = job.get("id", "?")
-        cron = job.get("cron", "?")
-        prompt = job.get("prompt", "")[:60]
-        lines.append(f"{jid} ({cron}): {prompt}")
-    await update.message.reply_text("Scheduled jobs:\n" + "\n".join(lines))
-
-CONTEXT_WARN_THRESHOLD = 0.80
-
-
-def _context_fill(chat_id: str) -> tuple[int, float]:
-    """Return (used_tokens, fill_fraction) from last result for a chat."""
-    result = get_last_result(chat_id)
-    if not result:
-        return 0, 0.0
-    usage = result.usage or {}
-    used = usage.get("cache_read_input_tokens", 0) + usage.get("input_tokens", 0)
-    return used, used / _CONTEXT_WINDOW_TOKENS
-
-
-@require_allowed
-async def on_context(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    chat_id = str(update.effective_chat.id)
-    used, fill = _context_fill(chat_id)
-    pct = fill * 100
-    bar_filled = int(fill * 20)
-    bar = "#" * bar_filled + "-" * (20 - bar_filled)
-    status = "OK"
-    if fill >= 0.95:
-        status = "CRITICAL — reset soon"
-    elif fill >= CONTEXT_WARN_THRESHOLD:
-        status = "WARNING — approaching limit"
-    text = (
-        f"Context window: {pct:.1f}%\n"
-        f"[{bar}]\n"
-        f"{used:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens\n"
-        f"Status: {status}"
-    )
-    await update.message.reply_text(text)
-
-
-@require_allowed
-async def on_model(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    current = get_current_model()
-    label = next((lbl for mid, lbl in AVAILABLE_MODELS if mid == current), current)
-    await update.message.reply_text(
-        f"Current model: *{label}*\n`{current}`",
-        parse_mode="Markdown",
-    )
-
-
-@require_allowed
-async def on_models(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    current = get_current_model()
-    keyboard = [
-        [InlineKeyboardButton(
-            f"{'✓ ' if mid == current else ''}{lbl}",
-            callback_data=f"model:{mid}",
-        )]
-        for mid, lbl in AVAILABLE_MODELS
-    ]
-    await update.message.reply_text(
-        "Select a Claude model:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    from .auth import is_allowed
-    cb = update.callback_query
-    await cb.answer()
-    if not (cb.data or "").startswith("model:"):
-        return
-    if not is_allowed(update.effective_chat.id):
-        await cb.edit_message_text("Not authorised.")
-        return
-    selected = cb.data[len("model:"):]
-    if selected not in {mid for mid, _ in AVAILABLE_MODELS}:
-        await cb.edit_message_text("Unknown model.")
-        return
-    await set_model(selected)
-    label = next(lbl for mid, lbl in AVAILABLE_MODELS if mid == selected)
-    await cb.edit_message_text(
-        f"✓ Switched to *{label}*\n`{selected}`\n\nAll sessions reset — next message uses the new model.",
-        parse_mode="Markdown",
-    )
-
-
-@require_allowed
-async def on_effort(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    current = get_current_effort()
-    keyboard = [
-        [InlineKeyboardButton(
-            f"{'✓ ' if eid == current else ''}{lbl}",
-            callback_data=f"effort:{eid}",
-        )]
-        for eid, lbl in AVAILABLE_EFFORTS
-    ]
-    await update.message.reply_text(
-        "Select thinking effort level:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-@require_allowed
-async def on_efforts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await on_effort(update, ctx)
-
-
-async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    from .auth import is_allowed
-    cb = update.callback_query
-    await cb.answer()
-    if not (cb.data or "").startswith("effort:"):
-        return
-    if not is_allowed(update.effective_chat.id):
-        await cb.edit_message_text("Not authorised.")
-        return
-    selected = cb.data[len("effort:"):]
-    if selected not in {eid for eid, _ in AVAILABLE_EFFORTS}:
-        await cb.edit_message_text("Unknown effort.")
-        return
-    await set_effort(selected)
-    label = next(lbl for eid, lbl in AVAILABLE_EFFORTS if eid == selected)
-    await cb.edit_message_text(
-        f"✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
-        parse_mode="Markdown",
-    )
-
-
-@require_allowed
-async def on_restart(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    import signal
-    await update.message.reply_text("Restarting…")
-    try:
-        from .handover import save
-        save("Process restarting via /restart command.")
-    except Exception:
-        pass
-    # Clean exit — let systemd (Restart=always) bring us back.
-    os.kill(os.getpid(), signal.SIGTERM)
-
-
-@require_allowed
-async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    import signal
-    import subprocess as _subprocess
-
-    from .handover import save as save_handover
-
-    old_version = _local_version()
-    source = os.getenv("SMOLCLAW_SOURCE", "git+https://github.com/saikatkumardey/smolclaw")
-
-    placeholder = await update.message.reply_text("Checking for updates…")
-
-    async def _edit(text: str) -> None:
-        try:
-            await placeholder.edit_text(text)
-        except Exception:
-            pass
-
-    remote = await asyncio.to_thread(_check_remote_version, source)
-    if remote and remote == old_version:
-        await _edit(f"Already on latest (v{old_version}).")
-        return
-
-    await _edit("Update available — installing…")
-    try:
-        result = await asyncio.to_thread(
-            _subprocess.run,
-            ["uv", "tool", "install", "--upgrade", source],
-            capture_output=True, text=True, timeout=120,
-        )
-    except Exception as e:
-        await _edit(f"Update failed: {e}")
-        return
-
-    if result.returncode != 0:
-        await _edit(f"Update failed:\n{result.stderr[:500]}")
-        return
-
-    summary = await asyncio.to_thread(_get_update_summary, source, old_version)
-
-    try:
-        save_handover(f"Updated via /update command.\n\n{summary}\n\nPENDING: none")
-    except Exception as e:
-        logger.warning("Handover save failed: %s", e)
-
-    await _edit(f"Updated. Restarting…\n\n{summary}")
-
-    # Clean exit — let systemd (Restart=always) bring us back with the new binary.
-    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @require_allowed
@@ -559,6 +267,17 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await _run_agent_and_reply(context.bot, msg, chat_id, agent_msg, context_warn=True)
 
 
+def _extract_reaction_emojis(added: list) -> list[str]:
+    """Extract emoji strings from a list of reaction objects."""
+    emojis = []
+    for r in added:
+        if hasattr(r, "emoji"):
+            emojis.append(r.emoji)
+        elif hasattr(r, "custom_emoji_id"):
+            emojis.append(f"(custom:{r.custom_emoji_id})")
+    return emojis
+
+
 @require_allowed
 async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle message reactions — pass them to the agent as feedback."""
@@ -566,29 +285,13 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not reaction:
         return
     chat_id = str(reaction.chat.id)
-
-    new = reaction.new_reaction or []
-    old = reaction.old_reaction or []
-
-    # Only care about new reactions (not removals)
-    added = [r for r in new if r not in old]
-    if not added:
-        return
-
-    emojis = []
-    for r in added:
-        if hasattr(r, "emoji"):
-            emojis.append(r.emoji)
-        elif hasattr(r, "custom_emoji_id"):
-            emojis.append(f"(custom:{r.custom_emoji_id})")
-
+    added = [r for r in (reaction.new_reaction or []) if r not in (reaction.old_reaction or [])]
+    emojis = _extract_reaction_emojis(added)
     if not emojis:
         return
-
     emoji_str = " ".join(emojis)
-    agent_msg = f"[User reacted to a previous message with: {emoji_str}]"
     logger.info("Reaction [%s]: %s", chat_id, emoji_str)
-    await _run_agent_and_reply(context.bot, None, chat_id, agent_msg, use_placeholder=False)
+    await _run_agent_and_reply(context.bot, None, chat_id, f"[User reacted to a previous message with: {emoji_str}]", use_placeholder=False)
 
 
 async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, agent_msg: str) -> None:

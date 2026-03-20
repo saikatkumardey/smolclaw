@@ -29,11 +29,9 @@ _CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
 _SUBCONSCIOUS_TIMEOUT_SECONDS = 600  # 10 minutes — subprocess boot + MCP init + multi-turn tool loop
 
 
-def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False, timeout: int | None = None) -> None:
+def _run_agent_in_thread(job_id: str, prompt: str, timeout: int) -> tuple[str | None, Exception | None]:
+    """Run agent in a separate thread with timeout. Returns (result, exception)."""
     from .agent import run
-    if timeout is None:
-        timeout = _CRON_TIMEOUT_SECONDS
-    logger.info("Cron: {}", job_id)
 
     result_holder: list[str] = []
     exc_holder: list[Exception] = []
@@ -49,25 +47,41 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False,
     t.join(timeout=timeout)
 
     if t.is_alive():
+        return None, TimeoutError(f"timed out after {timeout}s")
+    if exc_holder:
+        return None, exc_holder[0]
+    return (result_holder[0] if result_holder else "(no response)"), None
+
+
+def _should_suppress_result(job_id: str, result: str, heartbeat: bool) -> bool:
+    """Return True if this cron result should not be delivered to the user."""
+    if heartbeat and HEARTBEAT_OK in result:
+        return True
+    if job_id == "subconscious" and SUBCONSCIOUS_OK in result:
+        return True
+    return result == "(no response)"
+
+
+def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False, timeout: int | None = None) -> None:
+    if timeout is None:
+        timeout = _CRON_TIMEOUT_SECONDS
+    logger.info("Cron: {}", job_id)
+
+    result, exc = _run_agent_in_thread(job_id, prompt, timeout)
+
+    if isinstance(exc, TimeoutError):
         logger.error("Cron {} timed out after {}s — thread abandoned (daemon, will die on exit)", job_id, timeout)
         if deliver_to:
             _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' timed out after {timeout}s.")
         return
 
-    if exc_holder:
-        logger.error("Cron {} failed: {}", job_id, exc_holder[0])
+    if exc is not None:
+        logger.error("Cron {} failed: {}", job_id, exc)
         if deliver_to:
-            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc_holder[0]}")
+            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
         return
 
-    result = result_holder[0] if result_holder else "(no response)"
-    if heartbeat and HEARTBEAT_OK in result:
-        logger.debug("Heartbeat {}: silent (HEARTBEAT_OK)", job_id)
-        return
-    if job_id == "subconscious" and SUBCONSCIOUS_OK in result:
-        logger.debug("Subconscious {}: silent (SUBCONSCIOUS_OK)", job_id)
-        return
-    if deliver_to and result != "(no response)":
+    if not _should_suppress_result(job_id, result, heartbeat) and deliver_to:
         _telegram.send(chat_id=deliver_to, message=result)
 
 
@@ -189,26 +203,20 @@ def _cleanup_idle_browsers() -> None:
         logger.debug("Browser cleanup skipped: {}", e)
 
 
-def setup_scheduler() -> BackgroundScheduler:
-    scheduler = BackgroundScheduler()
-
-    # Periodic browser idle cleanup (every 5 min)
+def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
+    """Add built-in periodic jobs (cleanup, heartbeat, subconscious)."""
     scheduler.add_job(
         _cleanup_idle_browsers,
         IntervalTrigger(minutes=5),
         id="_browser_cleanup",
         replace_existing=True,
     )
-
-    # Clean up stale screenshots and uploads (daily)
     scheduler.add_job(
         _cleanup_stale_files,
         IntervalTrigger(hours=24),
         id="_file_cleanup",
         replace_existing=True,
     )
-
-    # Built-in heartbeat — local change detection, only invokes model when needed
     scheduler.add_job(
         _run_heartbeat,
         IntervalTrigger(minutes=30),
@@ -217,7 +225,6 @@ def setup_scheduler() -> BackgroundScheduler:
     )
     logger.info("Scheduled: heartbeat (every 30m, local-first)")
 
-    # Subconscious reflection loop
     from .config import Config
     cfg = Config.load()
     if cfg.get("subconscious_enabled", True):
@@ -230,43 +237,58 @@ def setup_scheduler() -> BackgroundScheduler:
         )
         logger.info("Scheduled: subconscious (every {}h)", interval_hours)
 
+
+def _should_skip_cron_job(job: dict) -> bool:
+    """Return True if a cron job entry should be skipped."""
+    if job.get("id") == "heartbeat":
+        logger.debug("Skipping crons.yaml heartbeat — now built-in with local change detection")
+        return True
+    if job.get("disabled"):
+        logger.info("Skipping disabled job: {}", job.get("id", "?"))
+        return True
+    missing = [f for f in ("id", "cron", "prompt") if f not in job]
+    if missing:
+        logger.warning("Skipping cron job — missing fields: %s", missing)
+        return True
+    return False
+
+
+def _schedule_cron_job(scheduler: BackgroundScheduler, job: dict) -> None:
+    """Schedule a single cron job from crons.yaml."""
+    deliver_to = job.get("deliver_to") or default_chat_id()
+    is_heartbeat = bool(job.get("heartbeat", False))
+    job_timeout = int(job.get("timeout", _CRON_TIMEOUT_SECONDS))
+    try:
+        scheduler.add_job(
+            _run_job,
+            CronTrigger.from_crontab(job["cron"]),
+            kwargs={
+                "job_id": job["id"],
+                "prompt": job["prompt"],
+                "deliver_to": deliver_to,
+                "heartbeat": is_heartbeat,
+                "timeout": job_timeout,
+            },
+            id=job["id"],
+            replace_existing=True,
+            max_instances=2,
+            misfire_grace_time=300,
+        )
+        logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
+    except Exception as e:
+        logger.error("Failed to schedule job %s: %s", job.get("id", "?"), e)
+
+
+def setup_scheduler() -> BackgroundScheduler:
+    scheduler = BackgroundScheduler()
+    _schedule_builtin_jobs(scheduler)
+
     crons_path = workspace.CRONS
     if not crons_path.exists():
         return scheduler
 
     data = yaml.safe_load(crons_path.read_text()) or {}
     for job in data.get("jobs", []):
-        if job.get("id") == "heartbeat":
-            logger.debug("Skipping crons.yaml heartbeat — now built-in with local change detection")
-            continue
-        if job.get("disabled"):
-            logger.info("Skipping disabled job: {}", job.get("id", "?"))
-            continue
-        missing = [f for f in ("id", "cron", "prompt") if f not in job]
-        if missing:
-            logger.warning("Skipping cron job — missing fields: %s", missing)
-            continue
-        deliver_to = job.get("deliver_to") or default_chat_id()
-        is_heartbeat = bool(job.get("heartbeat", False))
-        job_timeout = int(job.get("timeout", _CRON_TIMEOUT_SECONDS))
-        try:
-            scheduler.add_job(
-                _run_job,
-                CronTrigger.from_crontab(job["cron"]),
-                kwargs={
-                    "job_id": job["id"],
-                    "prompt": job["prompt"],
-                    "deliver_to": deliver_to,
-                    "heartbeat": is_heartbeat,
-                    "timeout": job_timeout,
-                },
-                id=job["id"],
-                replace_existing=True,
-                max_instances=2,
-                misfire_grace_time=300,
-            )
-            logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
-        except Exception as e:
-            logger.error("Failed to schedule job %s: %s", job.get("id", "?"), e)
-            continue
+        if not _should_skip_cron_job(job):
+            _schedule_cron_job(scheduler, job)
     return scheduler

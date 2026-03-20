@@ -284,7 +284,7 @@ class TestOnUpdate:
         update = _make_update(text="/update")
         ctx = _make_context()
 
-        monkeypatch.setattr("smolclaw.handlers._local_version", lambda: "0.5.0")
+        monkeypatch.setattr("smolclaw.handlers_commands._local_version", lambda: "0.5.0")
 
         # Mock requests.get response
         mock_resp = MagicMock()
@@ -294,7 +294,7 @@ class TestOnUpdate:
         async def fake_to_thread(fn, *a, **kw):
             return mock_resp  # only call is requests.get — returns same version
 
-        with patch("smolclaw.handlers._check_remote_version", return_value="0.5.0"):
+        with patch("smolclaw.handlers_commands._check_remote_version", return_value="0.5.0"):
             await on_update(update, ctx)
 
         # One placeholder sent, then edited with the final status
@@ -311,7 +311,7 @@ class TestOnUpdate:
         update = _make_update(text="/update")
         ctx = _make_context()
 
-        monkeypatch.setattr("smolclaw.handlers._local_version", lambda: "0.4.7")
+        monkeypatch.setattr("smolclaw.handlers_commands._local_version", lambda: "0.4.7")
 
         mock_install = MagicMock()
         mock_install.returncode = 0
