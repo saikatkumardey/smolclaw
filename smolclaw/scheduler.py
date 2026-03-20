@@ -21,7 +21,6 @@ os.environ.setdefault("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
 
 _telegram = TelegramSender()
 
-HEARTBEAT_OK = "HEARTBEAT_OK"
 SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 
 
@@ -53,16 +52,14 @@ def _run_agent_in_thread(job_id: str, prompt: str, timeout: int) -> tuple[str | 
     return (result_holder[0] if result_holder else "(no response)"), None
 
 
-def _should_suppress_result(job_id: str, result: str, heartbeat: bool) -> bool:
+def _should_suppress_result(job_id: str, result: str) -> bool:
     """Return True if this cron result should not be delivered to the user."""
-    if heartbeat and HEARTBEAT_OK in result:
-        return True
     if job_id == "subconscious" and SUBCONSCIOUS_OK in result:
         return True
     return result == "(no response)"
 
 
-def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False, timeout: int | None = None) -> None:
+def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = None) -> None:
     if timeout is None:
         timeout = _CRON_TIMEOUT_SECONDS
     logger.info("Cron: {}", job_id)
@@ -81,61 +78,8 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, heartbeat: bool = False,
             _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
         return
 
-    if not _should_suppress_result(job_id, result, heartbeat) and deliver_to:
+    if not _should_suppress_result(job_id, result) and deliver_to:
         _telegram.send(chat_id=deliver_to, message=result)
-
-
-_HEARTBEAT_TIMEOUT_SECONDS = 120  # 2 minutes — heartbeat should be fast
-_last_heartbeat_mtime: float = 0  # tracks when we last ran a heartbeat
-
-_HEARTBEAT_WATCHED_FILES = ("MEMORY.md", "USER.md", "subconscious.yaml")
-
-_HEARTBEAT_PROMPT = (
-    "HEARTBEAT_CHECK. Read HEARTBEAT.md and decide if there is anything worth telling the user.\n"
-    "If yes: call telegram_send with a short message, then reply HEARTBEAT_OK.\n"
-    "If no: reply HEARTBEAT_OK only. Do not send a message."
-)
-
-
-def _heartbeat_has_changes() -> bool:
-    """Check if any watched files or session logs changed since last heartbeat."""
-    global _last_heartbeat_mtime
-    if _last_heartbeat_mtime == 0:
-        return True  # first run — always check
-
-    # Check watched files
-    for name in _HEARTBEAT_WATCHED_FILES:
-        path = workspace.HOME / name
-        try:
-            if path.stat().st_mtime > _last_heartbeat_mtime:
-                return True
-        except FileNotFoundError:
-            continue
-
-    # Check session logs for new activity
-    sessions_dir = workspace.HOME / "sessions"
-    if sessions_dir.is_dir():
-        for f in sessions_dir.iterdir():
-            try:
-                if f.is_file() and f.stat().st_mtime > _last_heartbeat_mtime:
-                    return True
-            except (OSError, FileNotFoundError):
-                continue
-
-    return False
-
-
-def _run_heartbeat() -> None:
-    """Run a heartbeat check — but only invoke the model if something changed."""
-    global _last_heartbeat_mtime
-
-    if not _heartbeat_has_changes():
-        logger.debug("Heartbeat: nothing changed, skipping model call")
-        return
-
-    deliver_to = default_chat_id()
-    _run_job("heartbeat", _HEARTBEAT_PROMPT, deliver_to, heartbeat=True, timeout=_HEARTBEAT_TIMEOUT_SECONDS)
-    _last_heartbeat_mtime = __import__("time").time()
 
 
 def _run_subconscious() -> None:
@@ -172,7 +116,7 @@ def _run_subconscious() -> None:
     memory = workspace.read(workspace.MEMORY)
     prompt = subconscious.build_prompt(threads, recent_logs, memory)
     deliver_to = default_chat_id()
-    _run_job("subconscious", prompt, deliver_to, heartbeat=False, timeout=_SUBCONSCIOUS_TIMEOUT_SECONDS)
+    _run_job("subconscious", prompt, deliver_to, timeout=_SUBCONSCIOUS_TIMEOUT_SECONDS)
 
 
 def _cleanup_stale_files() -> None:
@@ -204,7 +148,7 @@ def _cleanup_idle_browsers() -> None:
 
 
 def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
-    """Add built-in periodic jobs (cleanup, heartbeat, subconscious)."""
+    """Add built-in periodic jobs (cleanup, subconscious)."""
     scheduler.add_job(
         _cleanup_idle_browsers,
         IntervalTrigger(minutes=5),
@@ -217,13 +161,6 @@ def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
         id="_file_cleanup",
         replace_existing=True,
     )
-    scheduler.add_job(
-        _run_heartbeat,
-        IntervalTrigger(minutes=30),
-        id="_heartbeat",
-        replace_existing=True,
-    )
-    logger.info("Scheduled: heartbeat (every 30m, local-first)")
 
     from .config import Config
     cfg = Config.load()
@@ -240,9 +177,6 @@ def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
 
 def _should_skip_cron_job(job: dict) -> bool:
     """Return True if a cron job entry should be skipped."""
-    if job.get("id") == "heartbeat":
-        logger.debug("Skipping crons.yaml heartbeat — now built-in with local change detection")
-        return True
     if job.get("disabled"):
         logger.info("Skipping disabled job: {}", job.get("id", "?"))
         return True
@@ -256,7 +190,6 @@ def _should_skip_cron_job(job: dict) -> bool:
 def _schedule_cron_job(scheduler: BackgroundScheduler, job: dict) -> None:
     """Schedule a single cron job from crons.yaml."""
     deliver_to = job.get("deliver_to") or default_chat_id()
-    is_heartbeat = bool(job.get("heartbeat", False))
     job_timeout = int(job.get("timeout", _CRON_TIMEOUT_SECONDS))
     try:
         scheduler.add_job(
@@ -266,7 +199,6 @@ def _schedule_cron_job(scheduler: BackgroundScheduler, job: dict) -> None:
                 "job_id": job["id"],
                 "prompt": job["prompt"],
                 "deliver_to": deliver_to,
-                "heartbeat": is_heartbeat,
                 "timeout": job_timeout,
             },
             id=job["id"],
@@ -274,7 +206,7 @@ def _schedule_cron_job(scheduler: BackgroundScheduler, job: dict) -> None:
             max_instances=2,
             misfire_grace_time=300,
         )
-        logger.info("Scheduled: {} ({}){}", job["id"], job["cron"], " [heartbeat]" if is_heartbeat else "")
+        logger.info("Scheduled: {} ({})", job["id"], job["cron"])
     except Exception as e:
         logger.error("Failed to schedule job %s: %s", job.get("id", "?"), e)
 

@@ -276,9 +276,6 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
 
 def _select_tools_for_chat(chat_id: str, cfg: Config) -> list:
     """Select the appropriate tool set based on chat_id type."""
-    if chat_id == "cron:heartbeat":
-        from .tools_sdk import telegram_send
-        return [telegram_send]
     if chat_id.startswith("cron:subconscious"):
         from .tools_sdk import reflect, telegram_send, update_subconscious
         return [telegram_send, update_subconscious, reflect]
@@ -300,8 +297,6 @@ def _select_model(chat_id: str, cfg: Config) -> str:
 
 def _select_max_turns(chat_id: str, cfg: Config) -> int:
     """Select max turns based on chat_id type."""
-    if chat_id == "cron:heartbeat":
-        return 2
     if chat_id.startswith("cron:subconscious"):
         return 3
     return cfg.get("max_turns")

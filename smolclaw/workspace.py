@@ -43,7 +43,7 @@ def init() -> None:
     sessions_dir.mkdir(exist_ok=True)
     sessions_dir.chmod(0o700)
 
-    for name in ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "HEARTBEAT.md", "crons.yaml"):
+    for name in ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "crons.yaml"):
         dest = HOME / name
         if not dest.exists():
             src = _TEMPLATES / name

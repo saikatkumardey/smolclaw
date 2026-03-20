@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from unittest.mock import patch
 
 from smolclaw import scheduler as _sched
@@ -46,18 +45,6 @@ class TestRunJobTimeout:
 
     @patch.object(_sched, "_telegram")
     @patch("smolclaw.agent.run")
-    def test_heartbeat_ok_suppresses_delivery(self, mock_run, mock_tg):
-        """Heartbeat jobs returning HEARTBEAT_OK should not send a message."""
-
-        async def _heartbeat(*a, **kw):
-            return "All good. HEARTBEAT_OK"
-
-        mock_run.side_effect = _heartbeat
-        _sched._run_job("test-hb", "check health", deliver_to="123", heartbeat=True)
-        mock_tg.send.assert_not_called()
-
-    @patch.object(_sched, "_telegram")
-    @patch("smolclaw.agent.run")
     def test_exception_notifies_user(self, mock_run, mock_tg):
         """A job that raises an exception should notify the user."""
 
@@ -83,7 +70,7 @@ class TestSubconsciousTimeout:
         """_run_subconscious uses _SUBCONSCIOUS_TIMEOUT_SECONDS, not the default."""
         call_log = []
 
-        def fake_run_job(job_id, prompt, deliver_to, heartbeat=False, timeout=None):
+        def fake_run_job(job_id, prompt, deliver_to, timeout=None):
             call_log.append({"job_id": job_id, "timeout": timeout})
 
         with patch.object(_sched, "_run_job", side_effect=fake_run_job), \
@@ -107,118 +94,3 @@ class TestVersionCheckSkipped:
         assert os.environ.get("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK") == "1"
 
 
-def _patch_heartbeat_workspace(tmp_path, monkeypatch):
-    """Set up workspace paths for heartbeat tests."""
-    import smolclaw.workspace as ws
-    monkeypatch.setattr(ws, "HOME", tmp_path)
-    monkeypatch.setattr(ws, "MEMORY", tmp_path / "MEMORY.md")
-    monkeypatch.setattr(ws, "USER", tmp_path / "USER.md")
-    monkeypatch.setattr(ws, "SUBCONSCIOUS", tmp_path / "subconscious.yaml")
-    (tmp_path / "sessions").mkdir(exist_ok=True)
-
-
-class TestHeartbeatSkipsWhenQuiet:
-    """Heartbeat should not invoke the model when nothing has changed."""
-
-    def test_skips_when_no_files_changed(self, tmp_path, monkeypatch):
-        """No watched files modified since last beat → no model call."""
-        _patch_heartbeat_workspace(tmp_path, monkeypatch)
-        # Create files with old mtimes
-        (tmp_path / "MEMORY.md").write_text("nothing here")
-        (tmp_path / "USER.md").write_text("tz: UTC")
-
-        # Pretend last heartbeat was recent (after the files were written)
-        monkeypatch.setattr(_sched, "_last_heartbeat_mtime", time.time() + 1)
-
-        run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
-             patch("smolclaw.auth.default_chat_id", return_value="123"):
-            _sched._run_heartbeat()
-
-        assert len(run_job_calls) == 0
-
-    def test_runs_when_memory_changed(self, tmp_path, monkeypatch):
-        """MEMORY.md modified after last beat → model is invoked."""
-        _patch_heartbeat_workspace(tmp_path, monkeypatch)
-        (tmp_path / "MEMORY.md").write_text("task completed!")
-        (tmp_path / "USER.md").write_text("tz: UTC")
-
-        # Last heartbeat was before the files
-        monkeypatch.setattr(_sched, "_last_heartbeat_mtime", 0)
-
-        run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
-             patch("smolclaw.auth.default_chat_id", return_value="123"):
-            _sched._run_heartbeat()
-
-        assert len(run_job_calls) == 1
-
-    def test_runs_on_first_beat(self, tmp_path, monkeypatch):
-        """First heartbeat ever (mtime=0) always invokes model."""
-        _patch_heartbeat_workspace(tmp_path, monkeypatch)
-        (tmp_path / "MEMORY.md").write_text("some memory")
-
-        monkeypatch.setattr(_sched, "_last_heartbeat_mtime", 0)
-
-        run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
-             patch("smolclaw.auth.default_chat_id", return_value="123"):
-            _sched._run_heartbeat()
-
-        assert len(run_job_calls) == 1
-
-    def test_runs_when_session_log_changed(self, tmp_path, monkeypatch):
-        """New session log activity since last beat → model is invoked."""
-        _patch_heartbeat_workspace(tmp_path, monkeypatch)
-
-        # Last heartbeat was 1 second ago
-        monkeypatch.setattr(_sched, "_last_heartbeat_mtime", time.time() - 1)
-
-        # Create a fresh session log (mtime = now, after last heartbeat)
-        (tmp_path / "sessions" / "chat123.jsonl").write_text('{"role":"user"}\n')
-
-        run_job_calls = []
-        with patch.object(_sched, "_run_job", side_effect=lambda *_a, **_kw: run_job_calls.append(1)), \
-             patch("smolclaw.auth.default_chat_id", return_value="123"):
-            _sched._run_heartbeat()
-
-        assert len(run_job_calls) == 1
-
-    def test_updates_mtime_after_run(self, tmp_path, monkeypatch):
-        """_last_heartbeat_mtime advances after a successful heartbeat."""
-        _patch_heartbeat_workspace(tmp_path, monkeypatch)
-        (tmp_path / "MEMORY.md").write_text("changed")
-        monkeypatch.setattr(_sched, "_last_heartbeat_mtime", 0)
-
-        before = time.time()
-        with patch.object(_sched, "_run_job"), \
-             patch("smolclaw.auth.default_chat_id", return_value="123"):
-            _sched._run_heartbeat()
-
-        assert _sched._last_heartbeat_mtime >= before
-
-
-class TestHeartbeatCronYamlSkipped:
-    """Old heartbeat entries in crons.yaml should be ignored — it's built-in now."""
-
-    def test_setup_scheduler_skips_heartbeat_from_crons(self, tmp_path, monkeypatch):
-        import smolclaw.workspace as ws
-        monkeypatch.setattr(ws, "CRONS", tmp_path / "crons.yaml")
-        monkeypatch.setattr(ws, "HOME", tmp_path)
-        (tmp_path / "crons.yaml").write_text(
-            'jobs:\n'
-            '  - id: heartbeat\n'
-            '    cron: "*/30 * * * *"\n'
-            '    heartbeat: true\n'
-            '    prompt: "old heartbeat prompt"\n'
-            '    deliver_to: "123"\n'
-        )
-
-        with patch("smolclaw.config.Config.load") as mock_cfg:
-            mock_cfg.return_value.get = lambda k, default=None: default
-            sched = _sched.setup_scheduler()
-
-        # The built-in _heartbeat job should exist
-        assert sched.get_job("_heartbeat") is not None
-        # The old crons.yaml heartbeat should NOT be scheduled
-        assert sched.get_job("heartbeat") is None

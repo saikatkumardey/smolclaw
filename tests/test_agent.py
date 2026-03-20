@@ -349,31 +349,6 @@ def test_regular_cron_still_gets_full_tools(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Heartbeat gets slim options
-# ---------------------------------------------------------------------------
-
-def test_heartbeat_options_slim_tools(tmp_path, monkeypatch):
-    """Heartbeat should only get telegram_send."""
-    _patch_workspace(tmp_path, monkeypatch)
-    import smolclaw.agent as ag
-
-    opts = ag._make_options("cron:heartbeat")
-    tool_names = opts.allowed_tools
-    assert "mcp__smolclaw__telegram_send" in tool_names
-    assert "mcp__smolclaw__browse" not in tool_names
-    assert "mcp__smolclaw__update_subconscious" not in tool_names
-
-
-def test_heartbeat_max_turns_capped(tmp_path, monkeypatch):
-    """Heartbeat should get max_turns=2."""
-    _patch_workspace(tmp_path, monkeypatch)
-    import smolclaw.agent as ag
-
-    opts = ag._make_options("cron:heartbeat")
-    assert opts.max_turns == 2
-
-
-# ---------------------------------------------------------------------------
 # Session lock cleanup
 # ---------------------------------------------------------------------------
 

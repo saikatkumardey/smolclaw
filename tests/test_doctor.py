@@ -47,7 +47,7 @@ def _make_healthy_workspace(tmp_path: Path) -> None:
     """Create a fully healthy workspace in tmp_path."""
     for d in ("skills", "tools", "uploads", "sessions"):
         (tmp_path / d).mkdir(exist_ok=True)
-    for name in ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"):
+    for name in ("SOUL.md", "AGENT.md", "USER.md", "MEMORY.md"):
         (tmp_path / name).write_text(f"# {name}\nContent here.\n")
     (tmp_path / "crons.yaml").write_text(yaml.dump({"jobs": []}))
     (tmp_path / ".env").write_text(
