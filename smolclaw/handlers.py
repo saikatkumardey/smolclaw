@@ -296,12 +296,14 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
 
     # Route to CC session if one is active
-    from .claude_code import continue_session, has_active_session
+    from .claude_code import continue_session, has_active_session, is_session_busy
     if has_active_session(chat_id):
+        if is_session_busy(chat_id):
+            await msg.reply_text("CC is still working… wait for it to finish, or /cc stop.")
+            return
         continued = await continue_session(chat_id, text, context.bot)
         if continued:
             return
-        # If CC is still running, fall through to normal agent
 
     agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
     await _run_agent_and_reply(context.bot, msg, chat_id, agent_msg, context_warn=True)

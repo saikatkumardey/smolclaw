@@ -41,6 +41,12 @@ def has_active_session(chat_id: str) -> bool:
     return chat_id in _sessions
 
 
+def is_session_busy(chat_id: str) -> bool:
+    """Return True if the CC session is currently running a process."""
+    session = _sessions.get(chat_id)
+    return session is not None and session.process is not None
+
+
 def _html_escape(text: str) -> str:
     """Escape HTML special characters."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
