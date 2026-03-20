@@ -77,6 +77,7 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/restart — restart the bot process\n"
         "/update — update smolclaw and restart\n"
         "/btw — ask a side question (no conversation history)\n"
+        "/cc <prompt> — run Claude Code (streaming)\n"
         "/context — show context window usage\n\n"
         "Or just talk to me."
     )

@@ -257,12 +257,52 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @require_allowed
+async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /cc — start or interact with a live Claude Code session."""
+    from .claude_code import continue_session, has_active_session, start_session, stop_session
+
+    msg = update.message
+    chat_id = str(update.effective_chat.id)
+    parts = (msg.text or "").split(None, 1)
+    prompt = parts[1] if len(parts) > 1 else ""
+
+    if prompt.strip().lower() == "stop":
+        stopped = await stop_session(chat_id)
+        await msg.reply_text("CC session stopped." if stopped else "No active CC session.")
+        return
+
+    if not prompt.strip():
+        if has_active_session(chat_id):
+            await msg.reply_text("CC session active. Send a message to continue, or /cc stop to end.")
+        else:
+            await msg.reply_text("Usage: /cc <prompt>\nStarts a live Claude Code session.")
+        return
+
+    if has_active_session(chat_id):
+        continued = await continue_session(chat_id, prompt, context.bot)
+        if not continued:
+            await msg.reply_text("CC session is still running. Wait for it to finish or /cc stop.")
+        return
+
+    await start_session(chat_id, prompt, context.bot)
+
+
+@require_allowed
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.edited_message or update.message
     chat_id = str(update.effective_chat.id)
     text = msg.text or ""
     is_edit = update.edited_message is not None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
+
+    # Route to CC session if one is active
+    from .claude_code import continue_session, has_active_session
+    if has_active_session(chat_id):
+        continued = await continue_session(chat_id, text, context.bot)
+        if continued:
+            return
+        # If CC is still running, fall through to normal agent
+
     agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
     await _run_agent_and_reply(context.bot, msg, chat_id, agent_msg, context_warn=True)
 

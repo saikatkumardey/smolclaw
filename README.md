@@ -46,6 +46,7 @@ On Linux with systemd, `smolclaw setup` installs and starts the service automati
 | `/cancel` | Cancel running task |
 | `/restart` | Restart the bot |
 | `/update` | Pull latest and restart |
+| `/cc <prompt>` | Live Claude Code session (streaming) |
 | `/context` | Context window usage |
 
 ## Workspace
