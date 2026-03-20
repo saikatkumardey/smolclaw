@@ -16,26 +16,22 @@ endif
 	@# Update version in pyproject.toml
 	sed -i 's/^version = "$(CURRENT_VERSION)"/version = "$(V)"/' pyproject.toml
 	@echo "  pyproject.toml updated"
-	@# Update CHANGELOG.md
+	@# Insert new version entry after the header in CHANGELOG.md
 	@DATE=$$(date +%Y-%m-%d); \
 	PREV_TAG=$$(git describe --tags --abbrev=0 2>/dev/null || echo ""); \
 	if [ -n "$$PREV_TAG" ]; then \
-		COMMITS=$$(git log $$PREV_TAG..HEAD --oneline --no-merges); \
+		COMMITS=$$(git log $$PREV_TAG..HEAD --oneline --no-merges | grep -v "bump version\|Bump version"); \
 	else \
 		COMMITS=$$(git log --oneline --no-merges -20); \
 	fi; \
 	BODY=$$(echo "$$COMMITS" | sed 's/^[a-f0-9]* /- /'); \
-	{ echo "# Changelog"; \
-	  echo ""; \
-	  echo "All notable changes to smolclaw will be documented in this file."; \
+	{ head -3 CHANGELOG.md; \
 	  echo ""; \
 	  echo "## [$(V)] - $$DATE"; \
 	  echo ""; \
 	  echo "$$BODY"; \
-	  if [ -f CHANGELOG.md ]; then \
-	    echo ""; \
-	    tail -n +4 CHANGELOG.md; \
-	  fi; \
+	  echo ""; \
+	  tail -n +4 CHANGELOG.md; \
 	} > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 	@echo "  CHANGELOG.md updated"
 	@# Lock file
