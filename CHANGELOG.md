@@ -2,6 +2,12 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.3] - 2026-03-21
+
+- feat: add delegate tool for synchronous sub-agent execution on Sonnet
+- ci: update python-doctor badge to 82/100
+
+
 ## [0.8.2] - 2026-03-21
 
 - feat: add /stop command to interrupt turn and cancel all background tasks
