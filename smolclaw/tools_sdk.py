@@ -33,8 +33,8 @@ def _text(t: str) -> dict:
 
 @tool(
     "telegram_send",
-    "Send a new Telegram message. Returns the message_id so you can edit it later with telegram_edit. "
-    "Prefer sending one message and editing it over sending multiple messages.",
+    "Send a new Telegram message. Each response should be a single new message. "
+    "Do not send multiple messages for one response — consolidate into one.",
     {"chat_id": str, "message": str},
 )
 async def telegram_send(args: dict) -> dict:
