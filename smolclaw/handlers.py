@@ -237,7 +237,7 @@ async def _run_agent_and_reply(
     placeholder = None
     try:
         if use_placeholder:
-            placeholder = await message.reply_text("...")
+            placeholder = await message.reply_text("💭")
             agent_msg = _inject_reply_id(agent_msg, chat_id, placeholder.message_id)
         async with _TypingLoop(bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
@@ -323,7 +323,7 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     placeholder = None
     try:
-        placeholder = await msg.reply_text("...")
+        placeholder = await msg.reply_text("💭")
         async with _TypingLoop(context.bot, chat_id):
             result = await asyncio.to_thread(
                 _sp.run,
