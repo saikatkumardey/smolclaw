@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.1] - 2026-03-21
+
+- feat: add health score to doctor output
+
+
 ## [0.8.0] - 2026-03-21
 
 - fix: decouple streaming draft sender from event consumption
