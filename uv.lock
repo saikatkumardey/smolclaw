@@ -1374,7 +1374,7 @@ wheels = [
 
 [[package]]
 name = "smolclaw"
-version = "0.8.24"
+version = "0.8.25"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
