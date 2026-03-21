@@ -419,6 +419,14 @@ _ICONS = {
 }
 
 
+def _compute_score(ok: int, warn: int, fail: int, total: int) -> int:
+    """Compute a 0-100 health score. OK=full, WARN=half, FAIL=zero."""
+    if total == 0:
+        return 100
+    points = ok * 1.0 + warn * 0.5
+    return round(100 * points / total)
+
+
 def _print_results(categories: dict[str, list[CheckResult]]) -> None:
     console.print()
     console.print("[bold]SmolClaw Doctor[/bold]")
@@ -438,6 +446,8 @@ def _print_results(categories: dict[str, list[CheckResult]]) -> None:
 
     console.print()
     ok, warn, fail = totals[Status.OK], totals[Status.WARN], totals[Status.FAIL]
+    total = ok + warn + fail
+    score = _compute_score(ok, warn, fail, total)
     parts = []
     if ok:
         parts.append(f"[green]{ok} passed[/green]")
@@ -446,6 +456,8 @@ def _print_results(categories: dict[str, list[CheckResult]]) -> None:
     if fail:
         parts.append(f"[red]{fail} failures[/red]")
     console.print(f"[bold]Summary:[/bold] {', '.join(parts)}")
+    score_color = "green" if score >= 90 else "yellow" if score >= 70 else "red"
+    console.print(f"[bold]Score:[/bold] [{score_color}]{score}/100[/{score_color}]")
     console.print()
 
 
