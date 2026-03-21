@@ -311,7 +311,15 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @require_allowed
 async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /cc — start or interact with a live Claude Code session."""
-    from .claude_code import continue_session, has_active_session, start_session, stop_session
+    from .claude_code import (
+        _CC_COMMANDS,
+        continue_session,
+        get_session_info,
+        has_active_session,
+        is_session_busy,
+        start_session,
+        stop_session,
+    )
 
     msg = update.message
     chat_id = str(update.effective_chat.id)
@@ -320,20 +328,35 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if prompt.strip().lower() == "stop":
         stopped = await stop_session(chat_id)
-        await msg.reply_text("CC session stopped." if stopped else "No active CC session.")
+        await msg.reply_text("💻 Session ended." if stopped else "No active CC session.")
         return
 
     if not prompt.strip():
-        if has_active_session(chat_id):
-            await msg.reply_text("CC session active. Send a message to continue, or /cc stop to end.")
+        info = get_session_info(chat_id)
+        if info:
+            await msg.reply_text(info, parse_mode="HTML")
         else:
-            await msg.reply_text("Usage: /cc <prompt>\nStarts a live Claude Code session.")
+            await msg.reply_text(
+                "<b>💻 Claude Code</b>\n\n"
+                "/cc &lt;prompt&gt; — start a session\n"
+                "/cc stop — end session\n\n"
+                "Messages route to CC while a session is active.",
+                parse_mode="HTML",
+            )
         return
 
+    # Forward CC slash commands (e.g. /cc compact → /compact)
+    cmd = prompt.strip().split()[0].lower()
+    if cmd in _CC_COMMANDS and has_active_session(chat_id):
+        prompt = f"/{cmd}"
+
     if has_active_session(chat_id):
+        if is_session_busy(chat_id):
+            await msg.reply_text("💻 Still working… wait or /cc stop.")
+            return
         continued = await continue_session(chat_id, prompt, context.bot)
         if not continued:
-            await msg.reply_text("CC session is still running. Wait for it to finish or /cc stop.")
+            await msg.reply_text("💻 Still working… wait or /cc stop.")
         return
 
     await start_session(chat_id, prompt, context.bot)
@@ -351,7 +374,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     from .claude_code import continue_session, has_active_session, is_session_busy
     if has_active_session(chat_id):
         if is_session_busy(chat_id):
-            await msg.reply_text("CC is still working… wait for it to finish, or /cc stop.")
+            await msg.reply_text("💻 Still working… wait or /cc stop.")
             return
         continued = await continue_session(chat_id, text, context.bot)
         if continued:

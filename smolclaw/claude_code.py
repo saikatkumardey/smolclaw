@@ -17,6 +17,9 @@ _EDIT_INTERVAL = 2.0  # seconds between Telegram message edits
 _MAX_TG_MSG = 4000  # leave room for Telegram's 4096 limit
 _MAX_TURNS = 15
 
+# CC-specific slash commands (subset useful via Telegram)
+_CC_COMMANDS = {"compact", "cost", "context"}
+
 
 @dataclass
 class CCSession:
@@ -28,7 +31,11 @@ class CCSession:
     last_edit: float = 0.0
     task: asyncio.Task | None = None
     working_dir: str = field(default_factory=lambda: str(workspace.HOME))
-    tool_status: str = ""  # current tool activity line
+    tool_status: str = ""
+    slash_commands: list[str] = field(default_factory=list)
+    model: str = ""
+    total_cost: float = 0.0
+    turns: int = 0
 
 
 _sessions: dict[str, CCSession] = {}
@@ -41,6 +48,27 @@ def has_active_session(chat_id: str) -> bool:
 def is_session_busy(chat_id: str) -> bool:
     session = _sessions.get(chat_id)
     return session is not None and session.process is not None
+
+
+def get_session_info(chat_id: str) -> str | None:
+    """Get session status summary for /cc with no args."""
+    session = _sessions.get(chat_id)
+    if not session:
+        return None
+    busy = "working" if session.process else "idle"
+    parts = [f"<b>💻 CC session</b> ({busy})"]
+    if session.model:
+        parts.append(f"Model: {session.model}")
+    if session.total_cost > 0:
+        parts.append(f"Cost: ${session.total_cost:.3f}")
+    parts.append(f"Turns: {session.turns}")
+    parts.append("")
+    parts.append("<b>Commands:</b>")
+    parts.append("/cc &lt;prompt&gt; — send a message")
+    parts.append("/cc stop — end session")
+    for cmd in sorted(_CC_COMMANDS):
+        parts.append(f"/cc {cmd} — /{cmd}")
+    return "\n".join(parts)
 
 
 def _html_escape(text: str) -> str:
@@ -69,34 +97,38 @@ def _tool_status_line(block: dict) -> str:
     return f"🔧 {name}"
 
 
-def _format_content_block(block: dict) -> str | None:
-    btype = block.get("type")
-    if btype == "text":
-        return _html_escape(block.get("text", ""))
-    return None
-
-
 def _format_event(event: dict, session: CCSession) -> str:
     etype = event.get("type", "")
 
+    if etype == "system":
+        # Capture metadata from init event
+        if event.get("slash_commands"):
+            session.slash_commands = event["slash_commands"]
+        if event.get("model"):
+            session.model = event["model"]
+        return ""
+
     if etype == "assistant":
+        session.turns += 1
         blocks = event.get("message", {}).get("content", [])
         text_parts = []
         for b in blocks:
             if b.get("type") == "tool_use":
                 session.tool_status = _tool_status_line(b)
             elif b.get("type") == "text":
-                text = _html_escape(b.get("text", ""))
+                text = b.get("text", "")
                 if text:
-                    session.tool_status = ""  # clear tool status when text arrives
-                    text_parts.append(text)
+                    session.tool_status = ""
+                    text_parts.append(_html_escape(text))
         return "".join(text_parts)
 
     if etype == "result":
         session.tool_status = ""
         cost = event.get("cost_usd")
         duration = event.get("duration_ms")
-        parts = ["✅ <b>done</b>"]
+        if cost is not None:
+            session.total_cost += cost
+        parts = ["✅"]
         if cost is not None:
             parts.append(f"${cost:.3f}")
         if duration is not None:
@@ -106,23 +138,23 @@ def _format_event(event: dict, session: CCSession) -> str:
     return ""
 
 
-_CC_FOOTER_ACTIVE = "\n\n<i>— /cc session (/cc stop to end)</i>"
-_CC_FOOTER_DONE = "\n\n<i>— /cc session ended</i>"
+_CC_HEADER = "💻 "
+_CC_FOOTER_ACTIVE = "\n\n<i>💻 /cc session — send message or /cc stop</i>"
 
 
 def _build_display(session: CCSession, done: bool = False) -> str:
     """Build the message text from buffer + tool status + footer."""
-    footer = _CC_FOOTER_DONE if done else _CC_FOOTER_ACTIVE
+    footer = "" if done else _CC_FOOTER_ACTIVE
     status_line = ""
     if session.tool_status and not done:
         status_line = f"\n\n<i>{_html_escape(session.tool_status)}</i>"
 
-    footer_len = len(footer) + len(status_line) + 20
-    max_body = _MAX_TG_MSG - footer_len
+    overhead = len(footer) + len(status_line) + len(_CC_HEADER) + 20
+    max_body = _MAX_TG_MSG - overhead
     buf = session.buffer
     if len(buf) > max_body:
         buf = "…\n" + buf[-(max_body - 5):]
-    return buf + status_line + footer
+    return _CC_HEADER + buf + status_line + footer
 
 
 def _strip_html(text: str) -> str:
@@ -138,7 +170,6 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
         return
     if not session.output_msg_id:
         return
-    # Allow edits if there's buffer content OR a tool status to show
     if not session.buffer.strip() and not session.tool_status:
         return
 
@@ -174,8 +205,7 @@ async def _maybe_split_message(session: CCSession, bot) -> None:
     if len(session.buffer) < _MAX_TG_MSG - 200:
         return
 
-    # Finalize the current message (no footer, just content)
-    text = session.buffer[:_MAX_TG_MSG - 50]
+    text = _build_display(session, done=True)
     try:
         await bot.edit_message_text(
             chat_id=session.chat_id,
@@ -193,11 +223,9 @@ async def _maybe_split_message(session: CCSession, bot) -> None:
         except Exception:
             pass
 
-    # Start a new message
-    msg = await bot.send_message(chat_id=session.chat_id, text="⏳ continuing…")
+    msg = await bot.send_message(chat_id=session.chat_id, text="💻 …")
     session.output_msg_id = msg.message_id
-    # Keep only the overflow that didn't fit
-    session.buffer = session.buffer[_MAX_TG_MSG - 50:]
+    session.buffer = ""
     session.last_edit = 0.0
 
 
@@ -225,7 +253,6 @@ async def _stream_loop(session: CCSession, bot) -> None:
             if formatted:
                 session.buffer += formatted
                 await _maybe_split_message(session, bot)
-            # Edit even without new text — tool status may have changed
             await _edit_output(session, bot)
 
         stderr_text = ""
@@ -237,7 +264,7 @@ async def _stream_loop(session: CCSession, bot) -> None:
                 logger.debug("Failed to read stderr", exc_info=True)
 
         if not session.buffer.strip() and stderr_text:
-            session.buffer = f"⚠️ CC error:\n<code>{_html_escape(stderr_text[:500])}</code>"
+            session.buffer = f"⚠️ error:\n<code>{_html_escape(stderr_text[:500])}</code>"
         elif not session.buffer.strip():
             session.buffer = "✅ done (no output)"
 
@@ -282,10 +309,10 @@ async def _spawn_proc(session: CCSession, prompt: str) -> asyncio.subprocess.Pro
 
 async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None = None) -> None:
     if chat_id in _sessions and _sessions[chat_id].process is not None:
-        await bot.send_message(chat_id=chat_id, text="CC session already running. Send /cc stop first.")
+        await bot.send_message(chat_id=chat_id, text="💻 Session already running. Send /cc stop first.")
         return
 
-    msg = await bot.send_message(chat_id=chat_id, text="⏳ starting…")
+    msg = await bot.send_message(chat_id=chat_id, text="💻 starting…")
     session = CCSession(
         chat_id=chat_id,
         output_msg_id=msg.message_id,
@@ -310,7 +337,7 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     if not session or session.process is not None or not session.session_id:
         return False
 
-    msg = await bot.send_message(chat_id=chat_id, text="⏳ continuing…")
+    msg = await bot.send_message(chat_id=chat_id, text="💻 …")
     session.output_msg_id = msg.message_id
     session.buffer = ""
     session.last_edit = 0.0
