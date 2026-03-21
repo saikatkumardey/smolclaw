@@ -174,11 +174,27 @@ def _cleanup_stale_files() -> None:
                 continue
 
 
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Store the main event loop so scheduler threads can schedule coroutines on it."""
+    global _main_loop
+    _main_loop = loop
+
+
 def _cleanup_idle_browsers() -> None:
     try:
         from .browser import BrowserManager
         mgr = BrowserManager.get()
-        if mgr._contexts:
+        if not mgr._contexts:
+            return
+        # BrowserManager._lock is bound to the main event loop.
+        # Use run_coroutine_threadsafe to run cleanup there.
+        if _main_loop and _main_loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(mgr.cleanup_idle(), _main_loop)
+            future.result(timeout=30)
+        else:
             asyncio.run(mgr.cleanup_idle())
     except Exception as e:
         logger.debug("Browser cleanup skipped: {}", e)

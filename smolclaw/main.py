@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import sys
@@ -193,6 +194,8 @@ def _preflight_checks() -> bool:
 async def _post_init(app, scheduler, commands) -> None:
     from telegram import BotCommand
     await app.bot.set_my_commands([BotCommand(name, desc) for name, _, desc in commands if desc is not None])
+    from .scheduler import set_main_loop
+    set_main_loop(asyncio.get_running_loop())
     scheduler.start()
     from .auth import default_chat_id
     default_chat = default_chat_id()
