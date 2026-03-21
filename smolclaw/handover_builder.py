@@ -40,7 +40,7 @@ def _collect_chat_messages(chat_id: str) -> list[dict]:
     if not sessions_dir.exists():
         return []
 
-    files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:2]
+    files = sorted(sessions_dir.glob("*.jsonl"))[-2:]
     messages: list[dict] = []
     for f in files:
         messages.extend(_parse_log_file(f, chat_id))
