@@ -381,7 +381,7 @@ class TestRunAgentNullMessage:
 
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Noted the reaction."):
             # Should not raise AttributeError
-            await _run_agent_and_reply(bot, None, "123", "reaction msg", use_placeholder=False)
+            await _run_agent_and_reply(bot, None, "123", "reaction msg")
 
         # Reply should be sent via bot.send_message since message is None
         bot.send_message.assert_awaited()
@@ -398,7 +398,7 @@ class TestRunAgentNullMessage:
 
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
             # Should not raise
-            await _run_agent_and_reply(bot, None, "123", "reaction msg", use_placeholder=False)
+            await _run_agent_and_reply(bot, None, "123", "reaction msg")
 
 
 # ---------------------------------------------------------------------------

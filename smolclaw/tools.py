@@ -10,6 +10,24 @@ from . import workspace
 MAX_TG_MSG = 4000
 
 
+def _send_chunk(client: httpx.Client, token: str, chat_id: str, chunk: str) -> int | None:
+    r = client.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        json={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"},
+    )
+    if not r.is_success:
+        r = client.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": chunk},
+        )
+    if not r.is_success:
+        return None
+    try:
+        return r.json().get("result", {}).get("message_id")
+    except (ValueError, KeyError):
+        return None
+
+
 def _send_telegram(chat_id: str, message: str) -> str:
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -17,21 +35,11 @@ def _send_telegram(chat_id: str, message: str) -> str:
         last_message_id = None
         with httpx.Client(timeout=10) as client:
             for chunk in chunks:
-                r = client.post(
-                    f"https://api.telegram.org/bot{token}/sendMessage",
-                    json={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"},
-                )
-                if not r.is_success:
-                    r = client.post(
-                        f"https://api.telegram.org/bot{token}/sendMessage",
-                        json={"chat_id": chat_id, "text": chunk},
-                    )
-                    if not r.is_success:
-                        return f"Failed: {r.text}"
-                try:
-                    last_message_id = r.json().get("result", {}).get("message_id")
-                except (ValueError, KeyError):
-                    pass
+                mid = _send_chunk(client, token, chat_id, chunk)
+                if mid is None and last_message_id is None:
+                    return "Failed to send message."
+                if mid is not None:
+                    last_message_id = mid
         if last_message_id:
             return f"Sent. [message_id={last_message_id}]"
         return "Sent."

@@ -267,19 +267,21 @@ class SmolClawApp(App):
         await reset_session(CHAT_ID)
         await self._append_bubble("Session reset.", "system")
 
-    _SCROLL_THRESHOLD = 2
-
     async def _append_bubble(self, text: str, variant: str) -> None:
         chat_view = self.query_one(ChatView)
         widget = UserRow(MessageBubble(text, variant=variant)) if variant == "user" else MessageBubble(text, variant=variant)
         await chat_view.mount(widget)
-        self._maybe_scroll(chat_view)
+        _maybe_scroll(chat_view)
 
     def _sync_append_bubble(self, text: str, variant: str) -> None:
         chat_view = self.query_one(ChatView)
         chat_view.mount(MessageBubble(text, variant=variant))
-        self._maybe_scroll(chat_view)
+        _maybe_scroll(chat_view)
 
-    def _maybe_scroll(self, chat_view: ChatView) -> None:
-        if chat_view.scroll_y >= chat_view.max_scroll_y - self._SCROLL_THRESHOLD:
-            chat_view.scroll_end(animate=False)
+
+_SCROLL_THRESHOLD = 2
+
+
+def _maybe_scroll(chat_view: ChatView) -> None:
+    if chat_view.scroll_y >= chat_view.max_scroll_y - _SCROLL_THRESHOLD:
+        chat_view.scroll_end(animate=False)

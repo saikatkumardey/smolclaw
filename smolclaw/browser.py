@@ -37,6 +37,18 @@ class BrowserManager:
             cls._instance = cls()
         return cls._instance
 
+    async def _cleanup_lightpanda(self) -> None:
+        if self._lp_process and self._lp_process.poll() is None:
+            self._lp_process.terminate()
+        self._lp_process = None
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception:
+                logger.debug("playwright stop failed during cleanup", exc_info=True)
+            self._playwright = None
+        self._browser = None
+
     async def _start_lightpanda(self) -> bool:
         lp_bin = shutil.which("lightpanda")
         if not lp_bin:
@@ -48,10 +60,8 @@ class BrowserManager:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )
-            # Give it a moment to start the CDP server
             await asyncio.sleep(0.5)
 
-            # Check it's still running
             if self._lp_process.poll() is not None:
                 stderr = self._lp_process.stderr.read().decode()[:200] if self._lp_process.stderr else ""
                 logger.warning("Lightpanda exited immediately: {}", stderr)
@@ -68,17 +78,7 @@ class BrowserManager:
             return True
         except Exception as e:
             logger.warning("Lightpanda connection failed, falling back to Chromium: {}", e)
-            # Clean up partial state
-            if self._lp_process and self._lp_process.poll() is None:
-                self._lp_process.terminate()
-            self._lp_process = None
-            if self._playwright:
-                try:
-                    await self._playwright.stop()
-                except Exception:
-                    logger.debug("playwright stop failed during cleanup", exc_info=True)
-                self._playwright = None
-            self._browser = None
+            await self._cleanup_lightpanda()
             return False
 
     async def _ensure_browser(self):
@@ -174,35 +174,33 @@ class BrowserManager:
                 logger.info("Closing idle browser context for {}", cid)
                 await self._close_session_unlocked(cid)
 
-    async def navigate(self, chat_id: str, url: str, timeout_ms: int = 30000) -> dict:
-        page = await self.get_page(chat_id)
-        await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-        await page.wait_for_timeout(1000)
-        title = await page.title()
-        url_final = page.url
-        text = await page.inner_text("body")
-        text = text.strip()[:4000]
-        return {"title": title, "url": url_final, "text": text}
+async def navigate_page(page, url: str, timeout_ms: int = 30000) -> dict:
+    await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+    await page.wait_for_timeout(1000)
+    title = await page.title()
+    url_final = page.url
+    text = await page.inner_text("body")
+    return {"title": title, "url": url_final, "text": text.strip()[:4000]}
 
-    async def screenshot(self, chat_id: str) -> str:
-        page = await self.get_page(chat_id)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        path = SCREENSHOTS_DIR / f"{chat_id}_{ts}.png"
-        await page.screenshot(path=str(path), full_page=False)
-        return str(path)
 
-    async def click(self, chat_id: str, selector: str, timeout_ms: int = 5000) -> str:
-        page = await self.get_page(chat_id)
-        await page.click(selector, timeout=timeout_ms)
-        await page.wait_for_timeout(500)
-        return f"Clicked '{selector}'"
+async def take_screenshot(page, chat_id: str) -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    path = SCREENSHOTS_DIR / f"{chat_id}_{ts}.png"
+    await page.screenshot(path=str(path), full_page=False)
+    return str(path)
 
-    async def type_text(self, chat_id: str, selector: str, text: str, timeout_ms: int = 5000) -> str:
-        page = await self.get_page(chat_id)
-        await page.fill(selector, text, timeout=timeout_ms)
-        return f"Typed into '{selector}'"
 
-    async def evaluate(self, chat_id: str, js: str) -> str:
-        page = await self.get_page(chat_id)
-        result = await page.evaluate(js)
-        return str(result)[:4000] if result is not None else "undefined"
+async def click_element(page, selector: str, timeout_ms: int = 5000) -> str:
+    await page.click(selector, timeout=timeout_ms)
+    await page.wait_for_timeout(500)
+    return f"Clicked '{selector}'"
+
+
+async def type_into(page, selector: str, text: str, timeout_ms: int = 5000) -> str:
+    await page.fill(selector, text, timeout=timeout_ms)
+    return f"Typed into '{selector}'"
+
+
+async def evaluate_js(page, js: str) -> str:
+    result = await page.evaluate(js)
+    return str(result)[:4000] if result is not None else "undefined"

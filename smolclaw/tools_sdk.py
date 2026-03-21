@@ -197,19 +197,28 @@ def _format_entry(entry: dict) -> str:
 def _grep_session_files(files: list, query_lower: str, chat_filter: str, max_results: int = 20) -> list[str]:
     results = []
     for f in files:
-        if not f.exists():
-            continue
-        try:
-            for line in f.read_text().splitlines():
-                if not line.strip():
-                    continue
-                entry = json.loads(line)
-                if _entry_matches(entry, query_lower, chat_filter):
-                    results.append(_format_entry(entry))
-                    if len(results) >= max_results:
-                        return results
-        except Exception:
-            continue
+        entries = _parse_session_file(f, query_lower, chat_filter, max_results - len(results))
+        results.extend(entries)
+        if len(results) >= max_results:
+            break
+    return results
+
+
+def _parse_session_file(f, query_lower: str, chat_filter: str, limit: int) -> list[str]:
+    if not f.exists():
+        return []
+    results = []
+    try:
+        for line in f.read_text().splitlines():
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if _entry_matches(entry, query_lower, chat_filter):
+                results.append(_format_entry(entry))
+                if len(results) >= limit:
+                    break
+    except Exception:
+        return results  # best-effort: return what we got
     return results
 
 

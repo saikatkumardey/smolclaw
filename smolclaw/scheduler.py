@@ -124,6 +124,25 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = No
         _telegram.send(chat_id=deliver_to, message=result)
 
 
+def _read_recent_logs(sessions_dir, tail_bytes: int = 4000) -> str:
+    if not sessions_dir.exists():
+        return ""
+    log_parts = []
+    for f in sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:3]:
+        try:
+            size = f.stat().st_size
+            if size == 0:
+                continue
+            with open(f, "rb") as fh:
+                if size > tail_bytes:
+                    fh.seek(size - tail_bytes)
+                    fh.readline()  # skip partial first line
+                log_parts.append(fh.read().decode("utf-8", errors="replace"))
+        except Exception:
+            continue
+    return "\n".join(log_parts)[:8000]
+
+
 def _run_subconscious() -> None:
     from .config import Config
     cfg = Config.load()
@@ -133,26 +152,7 @@ def _run_subconscious() -> None:
 
     from . import subconscious
     threads = subconscious.load_threads()
-
-    sessions_dir = workspace.HOME / "sessions"
-    recent_logs = ""
-    if sessions_dir.exists():
-        tail_bytes = 4000
-        log_parts = []
-        for f in sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:3]:
-            try:
-                size = f.stat().st_size
-                if size == 0:
-                    continue
-                with open(f, "rb") as fh:
-                    if size > tail_bytes:
-                        fh.seek(size - tail_bytes)
-                        fh.readline()  # skip partial first line
-                    log_parts.append(fh.read().decode("utf-8", errors="replace"))
-            except Exception:
-                continue
-        recent_logs = "\n".join(log_parts)[:8000]
-
+    recent_logs = _read_recent_logs(workspace.HOME / "sessions")
     memory = workspace.read(workspace.MEMORY)
     prompt = subconscious.build_prompt(threads, recent_logs, memory)
     deliver_to = default_chat_id()

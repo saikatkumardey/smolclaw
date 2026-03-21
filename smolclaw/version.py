@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.metadata
+import logging
 import re
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def local_version() -> str:
@@ -49,7 +52,7 @@ def check_remote_version(source: str) -> str | None:
             if m:
                 return m.group(1)
     except Exception:
-        pass
+        logger.debug("remote version check failed", exc_info=True)
     return None
 
 

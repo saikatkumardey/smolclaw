@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import time
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,12 +17,11 @@ from claude_agent_sdk import (
     TextBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
-    query,
-    tool,
 )
 from loguru import logger
 
 from . import workspace
+from .agent_tools import _make_delegate_tool, _make_spawn_task_tool
 from .config import Config
 from .handover import clear as handover_clear
 from .handover import exists as handover_exists
@@ -104,6 +102,17 @@ def _prune_stale_locks() -> None:
             del _session_locks[cid]
 
 
+def _force_terminate_transport(transport) -> None:
+    proc = getattr(transport, '_process', None) if transport is not None else None
+    if proc is None:
+        return
+    try:
+        proc.terminate()
+        logger.info("Force-terminated subprocess")
+    except Exception as kill_e:
+        logger.debug("Could not terminate subprocess: {}", kill_e)
+
+
 async def reset_session(chat_id: str) -> None:
     session = _sessions.pop(chat_id, None)
     if session:
@@ -112,14 +121,7 @@ async def reset_session(chat_id: str) -> None:
             await session.client.disconnect()
         except Exception as e:
             logger.warning("Failed to disconnect session for {}: {}", chat_id, e)
-            # Fallback: terminate subprocess if disconnect fails (anyio cancel-scope issue)
-            proc = getattr(transport, '_process', None) if transport is not None else None
-            if proc is not None:
-                try:
-                    proc.terminate()
-                    logger.info("Force-terminated subprocess for session {}", chat_id)
-                except Exception as kill_e:
-                    logger.debug("Could not terminate subprocess for {}: {}", chat_id, kill_e)
+            _force_terminate_transport(transport)
     try:
         from .browser import BrowserManager
         await BrowserManager.get().close_session(chat_id)
@@ -204,125 +206,13 @@ def session_log(chat_id: str, role: str, content: str | dict) -> None:
         logger.warning("session_log failed: %s", e)
 
 
-def _make_spawn_task_tool(chat_id: str, cfg: Config):
-    from .tools import _send_telegram
-
-    subagent_timeout = cfg.get("subagent_timeout")
-    subagent_max_turns = cfg.get("subagent_max_turns")
-
-    @tool("telegram_send", "Send a Telegram message to report progress or results.", {"message": str})
-    async def _subagent_telegram_send(args: dict) -> dict:
-        await asyncio.to_thread(_send_telegram, chat_id, args["message"])
-        return {"content": [{"type": "text", "text": "Sent."}]}
-
-    subagent_mcp = create_sdk_mcp_server(
-        name="smolclaw", version="1.0.0", tools=[_subagent_telegram_send]
-    )
-
-    @tool(
-        "spawn_task",
-        (
-            "Run an isolated sub-agent task in the background. Returns a task ID immediately. "
-            "Result is delivered to the user via Telegram when done. "
-            "The sub-agent has access to telegram_send to report progress mid-task. "
-            "Use for any task requiring more than 3 tool calls."
-        ),
-        {"task": str},
-    )
-    async def spawn_task(args: dict) -> dict:
-        task_id = uuid.uuid4().hex[:8]
-        description = args["task"][:80]
-
-        opts = ClaudeAgentOptions(
-            model=cfg.get("model"),
-            allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch", "mcp__smolclaw__telegram_send"],
-            mcp_servers={"smolclaw": subagent_mcp},
-            permission_mode="acceptEdits",
-            max_turns=subagent_max_turns,
-            cwd=str(workspace.HOME),
-        )
-
-        async def _run() -> None:
-            try:
-                parts = []
-                async with asyncio.timeout(subagent_timeout):
-                    async for msg in query(prompt=args["task"], options=opts):
-                        if isinstance(msg, AssistantMessage):
-                            for block in msg.content:
-                                if isinstance(block, TextBlock):
-                                    parts.append(block.text)
-                result = "\n".join(parts) or "(no output)"
-                _task_registry[task_id]["status"] = "done"
-            except TimeoutError:
-                result = f"Task {task_id} timed out."
-                _task_registry[task_id]["status"] = "timed_out"
-            except Exception as e:
-                result = f"Task {task_id} failed: {e}"
-                _task_registry[task_id]["status"] = "failed"
-            await asyncio.to_thread(_send_telegram, chat_id, result)
-
-        task = asyncio.create_task(_run())
-        _task_registry[task_id] = {
-            "task": task,
-            "description": description,
-            "started_at": time.time(),
-            "status": "running",
-            "chat_id": chat_id,
-        }
-        return {"content": [{"type": "text", "text": f"Task started (ID: {task_id}). I'll message you when it's done."}]}
-
-    return spawn_task
-
-
-def _make_delegate_tool(chat_id: str, cfg: Config):
-    subagent_timeout = cfg.get("subagent_timeout")
-    subagent_max_turns = cfg.get("subagent_max_turns")
-
-    @tool(
-        "delegate",
-        (
-            "Run a sub-agent synchronously and return its result. "
-            "The sub-agent uses a faster, cheaper model (Sonnet) with full tool access. "
-            "Use for tasks that need multiple tool calls: research, file operations, "
-            "web searches, code changes. You get the result back and can reason about it."
-        ),
-        {"task": str},
-    )
-    async def delegate(args: dict) -> dict:
-        opts = ClaudeAgentOptions(
-            model="claude-sonnet-4-6",
-            allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch"],
-            permission_mode="acceptEdits",
-            max_turns=subagent_max_turns,
-            cwd=str(workspace.HOME),
-        )
-        parts: list[str] = []
-        try:
-            async with asyncio.timeout(subagent_timeout):
-                async for msg in query(prompt=args["task"], options=opts):
-                    if isinstance(msg, AssistantMessage):
-                        for block in msg.content:
-                            if isinstance(block, TextBlock):
-                                parts.append(block.text)
-        except TimeoutError:
-            parts.append(f"\n[delegate timed out after {subagent_timeout}s]")
-        except Exception as e:
-            parts.append(f"\n[delegate error: {e}]")
-        result = "\n".join(parts) or "(no output)"
-        if len(result) > 12000:
-            result = result[:12000] + "\n\n[truncated — full output was longer]"
-        return {"content": [{"type": "text", "text": result}]}
-
-    return delegate
-
-
 def _select_tools_for_chat(chat_id: str, cfg: Config) -> list:
     if chat_id.startswith("cron:subconscious"):
         from .tools_sdk import reflect, telegram_send, update_subconscious
         return [telegram_send, update_subconscious, reflect]
     if chat_id.startswith("cron:"):
         return [*CUSTOM_TOOLS]
-    spawn_task = _make_spawn_task_tool(chat_id, cfg)
+    spawn_task = _make_spawn_task_tool(chat_id, cfg, _task_registry)
     delegate = _make_delegate_tool(chat_id, cfg)
     return [*CUSTOM_TOOLS, spawn_task, delegate]
 
@@ -403,11 +293,7 @@ async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
     tool_names: list[str] = []
     async for msg in client.receive_response():
         if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    parts.append(block.text)
-                elif isinstance(block, ToolUseBlock):
-                    tool_names.append(block.name)
+            _collect_assistant_parts(msg, parts, tool_names)
         elif isinstance(msg, ResultMessage):
             _sessions[chat_id].last_result = msg
             _log_result(chat_id, msg)
@@ -419,6 +305,26 @@ async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
     return "(no response)"
 
 
+def _collect_assistant_parts(msg: AssistantMessage, parts: list[str], tool_names: list[str]) -> None:
+    for block in msg.content:
+        if isinstance(block, TextBlock):
+            parts.append(block.text)
+        elif isinstance(block, ToolUseBlock):
+            tool_names.append(block.name)
+
+
+def _extract_stream_delta(msg: StreamEvent) -> str | None:
+    if msg.parent_tool_use_id is not None:
+        return None
+    event = msg.event
+    if event.get("type") != "content_block_delta":
+        return None
+    delta = event.get("delta", {})
+    if delta.get("type") != "text_delta":
+        return None
+    return delta.get("text", "") or None
+
+
 async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
     client = _sessions[chat_id].client
     await client.query(timestamped_message)
@@ -426,21 +332,11 @@ async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
     tool_names: list[str] = []
     async for msg in client.receive_response():
         if isinstance(msg, StreamEvent):
-            if msg.parent_tool_use_id is not None:
-                continue
-            event = msg.event
-            if event.get("type") == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "text_delta":
-                    text = delta.get("text", "")
-                    if text:
-                        yield ("text_delta", text)
+            text = _extract_stream_delta(msg)
+            if text:
+                yield ("text_delta", text)
         elif isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    parts.append(block.text)
-                elif isinstance(block, ToolUseBlock):
-                    tool_names.append(block.name)
+            _collect_assistant_parts(msg, parts, tool_names)
         elif isinstance(msg, ResultMessage):
             _sessions[chat_id].last_result = msg
             _log_result(chat_id, msg)

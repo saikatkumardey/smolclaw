@@ -14,12 +14,15 @@ from .agent import (
     get_streaming,
     interrupt_session,
     reset_session,
-    run as agent_run,
-    run_streaming as agent_run_streaming,
     session_log,
 )
+from .agent import (
+    run as agent_run,
+)
+from .agent import (
+    run_streaming as agent_run_streaming,
+)
 from .auth import require_allowed
-
 from .handlers_commands import (  # noqa: F401
     CONTEXT_WARN_THRESHOLD,
     _context_fill,
@@ -174,56 +177,43 @@ _DRAFT_INTERVAL = 0.5  # minimum seconds between draft updates
 _DRAFT_ID = 1  # constant draft_id; same ID = animated updates
 
 
+def _append_context_warn(reply: str, chat_id: str) -> str:
+    _used, fill = _context_fill(chat_id)
+    if fill >= CONTEXT_WARN_THRESHOLD:
+        reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
+    return reply
+
+
+async def _draft_sender(bot, chat_id: str, accumulated: list[str], done_event: asyncio.Event) -> None:
+    while not done_event.is_set():
+        if accumulated:
+            text = "".join(accumulated)[:MAX_TG_MSG]
+            try:
+                await bot.send_message_draft(chat_id=int(chat_id), draft_id=_DRAFT_ID, text=text)
+            except Exception:
+                logger.debug("send_message_draft failed", exc_info=True)
+        try:
+            await asyncio.wait_for(done_event.wait(), timeout=_DRAFT_INTERVAL)
+        except TimeoutError:
+            pass
+
+
 async def _run_agent_and_reply_streaming(
     bot, message, chat_id: str, agent_msg: str,
     *, context_warn: bool = False,
 ) -> None:
-    """Run agent with streaming drafts via sendMessageDraft.
-
-    Uses a background task to send drafts so event consumption is never
-    blocked by Telegram API latency.
-    """
-    accumulated: list[str] = []  # mutable buffer shared with draft sender
-    draft_dirty = False  # flag: new text since last draft
+    accumulated: list[str] = []
     done_event = asyncio.Event()
-    drafts_sent = False  # track if any drafts were delivered
-
-    async def _draft_sender():
-        """Periodically send accumulated text as a draft."""
-        nonlocal draft_dirty, drafts_sent
-        while not done_event.is_set():
-            if draft_dirty and accumulated:
-                draft_dirty = False
-                text = "".join(accumulated)[:MAX_TG_MSG]
-                try:
-                    await bot.send_message_draft(
-                        chat_id=int(chat_id),
-                        draft_id=_DRAFT_ID,
-                        text=text,
-                    )
-                    drafts_sent = True
-                except Exception:
-                    logger.debug("send_message_draft failed", exc_info=True)
-            try:
-                await asyncio.wait_for(done_event.wait(), timeout=_DRAFT_INTERVAL)
-            except TimeoutError:
-                pass
-
-    sender_task = asyncio.create_task(_draft_sender())
+    sender_task = asyncio.create_task(_draft_sender(bot, chat_id, accumulated, done_event))
     try:
         async for event_type, data in agent_run_streaming(chat_id=chat_id, user_message=agent_msg):
             if event_type == "text_delta":
                 accumulated.append(data)
-                draft_dirty = True
             elif event_type == "done":
                 done_event.set()
-                reply = data
-                if not reply or _is_tool_noise(reply):
+                if not data or _is_tool_noise(data):
                     return
-                if context_warn:
-                    _used, fill = _context_fill(chat_id)
-                    if fill >= CONTEXT_WARN_THRESHOLD:
-                        reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
+                reply = _append_context_warn(data, chat_id) if context_warn else data
                 await _send_reply(bot, message, chat_id, reply, placeholder=None)
     except Exception as e:
         logger.exception("Streaming error: %s", e)
@@ -240,11 +230,11 @@ async def _run_agent_and_reply_streaming(
 
 async def _run_agent_and_reply(
     bot, message, chat_id: str, agent_msg: str,
-    *, use_placeholder: bool = True, context_warn: bool = False,
+    *, context_warn: bool = False,
 ) -> None:
     """Run agent and send reply. Shared by on_message, on_reaction, _handle_upload."""
     # Use streaming for interactive sessions when enabled
-    if use_placeholder and not chat_id.startswith("cron:") and get_streaming():
+    if message and not chat_id.startswith("cron:") and get_streaming():
         await _run_agent_and_reply_streaming(
             bot, message, chat_id, agent_msg, context_warn=context_warn,
         )
@@ -448,7 +438,7 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     emoji_str = " ".join(emojis)
     logger.info("Reaction [%s]: %s", chat_id, emoji_str)
-    await _run_agent_and_reply(context.bot, None, chat_id, f"[User reacted to a previous message with: {emoji_str}]", use_placeholder=False)
+    await _run_agent_and_reply(context.bot, None, chat_id, f"[User reacted to a previous message with: {emoji_str}]")
 
 
 @require_allowed

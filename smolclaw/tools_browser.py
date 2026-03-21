@@ -7,13 +7,9 @@ def _text(t: str) -> dict:
     return {"content": [{"type": "text", "text": t}]}
 
 
-async def _browser_call(method: str, *args) -> dict:
+async def _get_page(chat_id: str):
     from .browser import BrowserManager
-    try:
-        result = await getattr(BrowserManager.get(), method)(*args)
-        return _text(str(result) if isinstance(result, str) else f"OK: {result}")
-    except Exception as e:
-        return _text(f"Browser error: {e}")
+    return await BrowserManager.get().get_page(chat_id)
 
 
 @tool(
@@ -24,10 +20,10 @@ async def _browser_call(method: str, *args) -> dict:
     {"chat_id": str, "url": str},
 )
 async def browse(args: dict) -> dict:
-    from .browser import BrowserManager
-
+    from .browser import navigate_page
     try:
-        result = await BrowserManager.get().navigate(str(args["chat_id"]), str(args["url"]))
+        page = await _get_page(str(args["chat_id"]))
+        result = await navigate_page(page, str(args["url"]))
         return _text(f"Title: {result['title']}\nURL: {result['url']}\n\n{result['text']}")
     except Exception as e:
         return _text(f"Browser error: {e}")
@@ -39,7 +35,13 @@ async def browse(args: dict) -> dict:
     {"chat_id": str, "selector": str},
 )
 async def browser_click(args: dict) -> dict:
-    return await _browser_call("click", str(args["chat_id"]), str(args["selector"]))
+    from .browser import click_element
+    try:
+        page = await _get_page(str(args["chat_id"]))
+        result = await click_element(page, str(args["selector"]))
+        return _text(result)
+    except Exception as e:
+        return _text(f"Browser error: {e}")
 
 
 @tool(
@@ -48,7 +50,13 @@ async def browser_click(args: dict) -> dict:
     {"chat_id": str, "selector": str, "text": str},
 )
 async def browser_type(args: dict) -> dict:
-    return await _browser_call("type_text", str(args["chat_id"]), str(args["selector"]), str(args["text"]))
+    from .browser import type_into
+    try:
+        page = await _get_page(str(args["chat_id"]))
+        result = await type_into(page, str(args["selector"]), str(args["text"]))
+        return _text(result)
+    except Exception as e:
+        return _text(f"Browser error: {e}")
 
 
 @tool(
@@ -58,9 +66,10 @@ async def browser_type(args: dict) -> dict:
     {"chat_id": str},
 )
 async def browser_screenshot(args: dict) -> dict:
-    from .browser import BrowserManager
+    from .browser import take_screenshot
     try:
-        path = await BrowserManager.get().screenshot(str(args["chat_id"]))
+        page = await _get_page(str(args["chat_id"]))
+        path = await take_screenshot(page, str(args["chat_id"]))
         return _text(f"Screenshot saved: {path}")
     except Exception as e:
         return _text(f"Browser error: {e}")
@@ -72,4 +81,10 @@ async def browser_screenshot(args: dict) -> dict:
     {"chat_id": str, "javascript": str},
 )
 async def browser_eval(args: dict) -> dict:
-    return await _browser_call("evaluate", str(args["chat_id"]), str(args["javascript"]))
+    from .browser import evaluate_js
+    try:
+        page = await _get_page(str(args["chat_id"]))
+        result = await evaluate_js(page, str(args["javascript"]))
+        return _text(result)
+    except Exception as e:
+        return _text(f"Browser error: {e}")

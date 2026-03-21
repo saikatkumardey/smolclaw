@@ -49,16 +49,21 @@ def init() -> None:
     if not SUBCONSCIOUS.exists():
         SUBCONSCIOUS.write_text("threads: []\n")
 
-    src_skills = _TEMPLATES / "skills"
-    if src_skills.is_dir():
-        for skill_dir in src_skills.iterdir():
-            if skill_dir.is_dir():
-                dest_skill = SKILLS_DIR / skill_dir.name
-                dest_skill.mkdir(exist_ok=True)
-                for f in skill_dir.iterdir():
-                    dest = dest_skill / f.name
-                    if not dest.exists():
-                        shutil.copy(f, dest)
+    _copy_skill_templates(_TEMPLATES / "skills", SKILLS_DIR)
+
+
+def _copy_skill_templates(src_skills: Path, dest_skills: Path) -> None:
+    if not src_skills.is_dir():
+        return
+    for skill_dir in src_skills.iterdir():
+        if not skill_dir.is_dir():
+            continue
+        dest_skill = dest_skills / skill_dir.name
+        dest_skill.mkdir(exist_ok=True)
+        for f in skill_dir.iterdir():
+            dest = dest_skill / f.name
+            if not dest.exists():
+                shutil.copy(f, dest)
 
 
 def read_template(name: str) -> str:

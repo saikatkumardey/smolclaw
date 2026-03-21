@@ -206,6 +206,53 @@ def step_telegram_id(env: dict[str, str]) -> dict[str, str]:
         return env
 
 
+def _prompt_api_key(env: dict[str, str]) -> dict[str, str]:
+    try:
+        api_key = getpass.getpass("  Paste your ANTHROPIC_API_KEY (hidden): ").strip()
+    except KeyboardInterrupt:
+        console.print()
+        raise
+    if not api_key:
+        _warn("No key entered. Run 'smolclaw setup-token' to authenticate later.")
+        return env
+    env["ANTHROPIC_API_KEY"] = api_key
+    _success("API key saved.")
+    return env
+
+
+def _do_claude_login() -> None:
+    console.print()
+    _info("Opening browser for Claude.ai login…")
+    try:
+        subprocess.run(["claude", "auth", "login"], check=True)
+        _success("Logged in with Claude account.")
+    except FileNotFoundError:
+        _error("[bold]claude[/bold] CLI not found. The SDK should have bundled it.")
+        _warn("Run 'smolclaw setup-token' after installation to retry.")
+    except subprocess.CalledProcessError:
+        _error("Login failed or was cancelled.")
+        _warn("Run 'smolclaw setup-token' to retry.")
+
+
+def _ask_auth_method() -> str | None:
+    try:
+        return questionary.select(
+            "How would you like to authenticate?",
+            choices=[
+                questionary.Choice("Paste an API key", value="key"),
+                questionary.Choice("Login with Claude account (opens browser)", value="login"),
+            ],
+            style=questionary.Style([
+                ("selected", "fg:cyan bold"),
+                ("pointer", "fg:cyan bold"),
+                ("question", "fg:blue bold"),
+            ]),
+        ).ask()
+    except KeyboardInterrupt:
+        console.print()
+        raise
+
+
 def step_claude_auth(env: dict[str, str]) -> dict[str, str]:
     _step_header(3, "Claude Authentication")
 
@@ -226,124 +273,85 @@ def step_claude_auth(env: dict[str, str]) -> dict[str, str]:
         padding=(1, 2),
     ))
 
-    try:
-        choice = questionary.select(
-            "How would you like to authenticate?",
-            choices=[
-                questionary.Choice("Paste an API key", value="key"),
-                questionary.Choice("Login with Claude account (opens browser)", value="login"),
-            ],
-            style=questionary.Style([
-                ("selected", "fg:cyan bold"),
-                ("pointer", "fg:cyan bold"),
-                ("question", "fg:blue bold"),
-            ]),
-        ).ask()
-    except KeyboardInterrupt:
-        console.print()
-        raise
-
+    choice = _ask_auth_method()
     if choice is None:
         _warn("Skipping Claude authentication. Run 'smolclaw setup-token' later.")
-        return env
-
-    if choice == "key":
-        try:
-            api_key = getpass.getpass("  Paste your ANTHROPIC_API_KEY (hidden): ").strip()
-        except KeyboardInterrupt:
-            console.print()
-            raise
-
-        if not api_key:
-            _warn("No key entered. Run 'smolclaw setup-token' to authenticate later.")
-            return env
-
-        env["ANTHROPIC_API_KEY"] = api_key
-        _success("API key saved.")
-
-    else:  # login
-        console.print()
-        _info("Opening browser for Claude.ai login…")
-        try:
-            subprocess.run(["claude", "auth", "login"], check=True)
-            _success("Logged in with Claude account.")
-        except FileNotFoundError:
-            _error("[bold]claude[/bold] CLI not found. The SDK should have bundled it.")
-            _warn("Run 'smolclaw setup-token' after installation to retry.")
-        except subprocess.CalledProcessError:
-            _error("Login failed or was cancelled.")
-            _warn("Run 'smolclaw setup-token' to retry.")
-
+    elif choice == "key":
+        env = _prompt_api_key(env)
+    else:
+        _do_claude_login()
     return env
+
+
+_SECRET_KEYS = {
+    "TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "GROQ_API_KEY", "LITELLM_API_KEY",
+}
+
+_DISPLAY_ORDER = [
+    "TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS", "LITELLM_MODEL",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY",
+    "LITELLM_API_KEY", "OLLAMA_BASE_URL",
+]
+
+
+def _mask(v: str, n: int = 10) -> str:
+    return "***" if len(v) <= n else v[:n] + "…"
+
+
+def _build_summary_table(env: dict[str, str]) -> Table:
+    summary = Table(show_header=False, border_style="dim green", box=None, padding=(0, 2))
+    summary.add_column("Key", style="dim", min_width=24)
+    summary.add_column("Value", style="bold")
+    shown = set()
+    for key in _DISPLAY_ORDER:
+        if key in env:
+            val = _mask(env[key]) if key in _SECRET_KEYS else env[key]
+            summary.add_row(key, f"[green]{val}[/green]")
+            shown.add(key)
+    for key, val in env.items():
+        if key not in shown:
+            display_val = _mask(val) if key in _SECRET_KEYS else val
+            summary.add_row(key, f"[green]{display_val}[/green]")
+    return summary
 
 
 def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
     console.print()
     console.print(Rule(style="green"))
     console.print()
-
-    summary = Table(
-        show_header=False,
-        border_style="dim green",
-        box=None,
-        padding=(0, 2),
-    )
-    summary.add_column("Key", style="dim", min_width=24)
-    summary.add_column("Value", style="bold")
-
-    def _mask(v: str, n: int = 10) -> str:
-        if len(v) <= n:
-            return "***"
-        return v[:n] + "…"
-
-    secret_keys = {
-        "TELEGRAM_BOT_TOKEN",
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "GROQ_API_KEY",
-        "LITELLM_API_KEY",
-    }
-
-    display_order = [
-        "TELEGRAM_BOT_TOKEN",
-        "ALLOWED_USER_IDS",
-        "LITELLM_MODEL",
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "GROQ_API_KEY",
-        "LITELLM_API_KEY",
-        "OLLAMA_BASE_URL",
-    ]
-
-    shown = set()
-    for key in display_order:
-        if key in env:
-            val = _mask(env[key]) if key in secret_keys else env[key]
-            summary.add_row(key, f"[green]{val}[/green]")
-            shown.add(key)
-
-    for key, val in env.items():
-        if key not in shown:
-            display_val = _mask(val) if key in secret_keys else val
-            summary.add_row(key, f"[green]{display_val}[/green]")
-
     console.print(Panel(
-        summary,
+        _build_summary_table(env),
         title="[bold green]✓  Setup Complete[/bold green]",
         subtitle=f"[dim]{workspace_home / '.env'}[/dim]",
         border_style="green",
         padding=(1, 2),
     ))
     console.print()
-    console.print(
-        Panel(
-            "Start your agent:\n\n"
-            "  [bold cyan]smolclaw start[/bold cyan]",
-            border_style="cyan",
-            padding=(1, 2),
-        )
-    )
+    console.print(Panel(
+        "Start your agent:\n\n  [bold cyan]smolclaw start[/bold cyan]",
+        border_style="cyan",
+        padding=(1, 2),
+    ))
     console.print()
+
+
+def _patch_cron_deliver_to(env: dict[str, str]) -> None:
+    from . import workspace
+    user_id = env.get("ALLOWED_USER_IDS", "").split(",")[0].strip()
+    if not user_id or not workspace.CRONS.exists():
+        return
+    try:
+        crons_data = yaml.safe_load(workspace.CRONS.read_text()) or {}
+        patched = False
+        for job in crons_data.get("jobs", []):
+            if not job.get("deliver_to"):
+                job["deliver_to"] = user_id
+                patched = True
+        if patched:
+            workspace.CRONS.write_text(yaml.dump(crons_data, default_flow_style=False, allow_unicode=True))
+    except (OSError, ValueError, KeyError):
+        pass
 
 
 def run() -> None:
@@ -389,20 +397,7 @@ def run() -> None:
         console.print()
         sys.exit(0)
 
-    user_id = env.get("ALLOWED_USER_IDS", "").split(",")[0].strip()
-    if user_id and workspace.CRONS.exists():
-        try:
-            crons_data = yaml.safe_load(workspace.CRONS.read_text()) or {}
-            patched = False
-            for job in crons_data.get("jobs", []):
-                if not job.get("deliver_to"):
-                    job["deliver_to"] = user_id
-                    patched = True
-            if patched:
-                workspace.CRONS.write_text(yaml.dump(crons_data, default_flow_style=False, allow_unicode=True))
-        except (OSError, ValueError, KeyError):
-            pass  # Non-fatal — user can edit crons.yaml manually
-
+    _patch_cron_deliver_to(env)
     _print_summary(env, workspace.HOME)
     _install_systemd_service(workspace.HOME)
     _install_watchdog(workspace.HOME)

@@ -230,7 +230,7 @@ async def test_spawn_task_passes_model_and_cwd_to_subagent(tmp_path, monkeypatch
     from smolclaw.config import Config
 
     cfg = Config.load()
-    spawn_tool = ag._make_spawn_task_tool("test-chat", cfg)
+    spawn_tool = ag._make_spawn_task_tool("test-chat", cfg, ag._task_registry)
 
     captured_opts = {}
 
@@ -241,7 +241,7 @@ async def test_spawn_task_passes_model_and_cwd_to_subagent(tmp_path, monkeypatch
         return
         yield  # make it an async generator
 
-    with patch("smolclaw.agent.query", fake_query), \
+    with patch("smolclaw.agent_tools.query", fake_query), \
          patch("smolclaw.tools._send_telegram"):
         await spawn_tool.handler({"task": "say hello"})
         # Let the background task run

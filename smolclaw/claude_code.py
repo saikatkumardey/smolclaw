@@ -43,33 +43,45 @@ def is_session_busy(chat_id: str) -> bool:
 
 
 def _html_escape(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _format_tool_hint(block: dict) -> str:
+    name = block.get("name", "?")
+    inp = block.get("input", {})
+    hint_map = {
+        "Bash": lambda: inp.get("command", "")[:80],
+        "Read": lambda: inp.get("file_path", ""),
+        "Write": lambda: inp.get("file_path", ""),
+        "Edit": lambda: inp.get("file_path", ""),
+        "Glob": lambda: inp.get("pattern", ""),
+        "Grep": lambda: inp.get("pattern", ""),
+    }
+    hint = hint_map.get(name, lambda: "")()
+    if hint:
+        return f"\n<code>> {name}: {_html_escape(hint)}</code>"
+    return f"\n<code>> {name}</code>"
+
+
+def _format_content_block(block: dict) -> str | None:
+    btype = block.get("type")
+    if btype == "text":
+        return _html_escape(block.get("text", ""))
+    if btype == "tool_use":
+        return _format_tool_hint(block)
+    return None
 
 
 def _format_event(event: dict) -> str:
     etype = event.get("type", "")
 
     if etype == "assistant":
-        msg = event.get("message", {})
-        content_blocks = msg.get("content", [])
-        parts = []
-        for block in content_blocks:
-            if block.get("type") == "text":
-                parts.append(_html_escape(block.get("text", "")))
-            elif block.get("type") == "tool_use":
-                name = block.get("name", "?")
-                inp = block.get("input", {})
-                hint = ""
-                if name == "Bash":
-                    hint = inp.get("command", "")[:80]
-                elif name in ("Read", "Write", "Edit"):
-                    hint = inp.get("file_path", "")
-                elif name in ("Glob", "Grep"):
-                    hint = inp.get("pattern", "")
-                if hint:
-                    parts.append(f"\n<code>> {name}: {_html_escape(hint)}</code>")
-                else:
-                    parts.append(f"\n<code>> {name}</code>")
+        blocks = event.get("message", {}).get("content", [])
+        parts = [p for b in blocks if (p := _format_content_block(b)) is not None]
         return "".join(parts)
 
     if etype == "result":
@@ -87,6 +99,13 @@ def _truncate_buffer(buf: str) -> str:
     if len(buf) > max_body:
         buf = "…(truncated)\n" + buf[-(max_body - 15):]
     return buf + _CC_FOOTER
+
+
+def _strip_html(text: str) -> str:
+    from html import unescape
+    for tag in ("b", "i", "code"):
+        text = text.replace(f"<{tag}>", "").replace(f"</{tag}>", "")
+    return unescape(text)
 
 
 async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
@@ -107,23 +126,20 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
         session.last_edit = now
     except Exception as e:
         err = str(e).lower()
-        if "not modified" not in err:
-            if "parse" in err or "can't" in err:
-                try:
-                    from html import unescape
-                    plain = unescape(text.replace("<b>", "").replace("</b>", "")
-                                         .replace("<i>", "").replace("</i>", "")
-                                         .replace("<code>", "").replace("</code>", ""))
-                    await bot.edit_message_text(
-                        chat_id=session.chat_id,
-                        message_id=session.output_msg_id,
-                        text=plain,
-                    )
-                    session.last_edit = now
-                except Exception:
-                    pass
-            else:
-                logger.debug("CC edit failed: %s", e)
+        if "not modified" in err:
+            return
+        if "parse" not in err and "can't" not in err:
+            logger.debug("CC edit failed: %s", e)
+            return
+        try:
+            await bot.edit_message_text(
+                chat_id=session.chat_id,
+                message_id=session.output_msg_id,
+                text=_strip_html(text),
+            )
+            session.last_edit = now
+        except Exception:
+            logger.debug("HTML fallback edit failed", exc_info=True)
 
 
 async def _stream_loop(session: CCSession, bot) -> None:
@@ -157,7 +173,7 @@ async def _stream_loop(session: CCSession, bot) -> None:
                 stderr_data = await proc.stderr.read()
                 stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
             except Exception:
-                pass
+                logger.debug("Failed to read stderr", exc_info=True)
 
         if not session.buffer.strip() and stderr_text:
             session.buffer = f"⚠️ CC error:\n<code>{_html_escape(stderr_text[:500])}</code>"
@@ -248,26 +264,31 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     return True
 
 
+async def _cancel_task(task: asyncio.Task) -> None:
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
+    try:
+        proc.terminate()
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except (TimeoutError, ProcessLookupError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 async def stop_session(chat_id: str) -> bool:
     session = _sessions.pop(chat_id, None)
     if not session:
         return False
-
     if session.task:
-        session.task.cancel()
-        try:
-            await session.task
-        except asyncio.CancelledError:
-            pass
-
+        await _cancel_task(session.task)
     if session.process:
-        try:
-            session.process.terminate()
-            await asyncio.wait_for(session.process.wait(), timeout=5)
-        except (TimeoutError, ProcessLookupError):
-            try:
-                session.process.kill()
-            except ProcessLookupError:
-                pass
-
+        await _terminate_process(session.process)
     return True

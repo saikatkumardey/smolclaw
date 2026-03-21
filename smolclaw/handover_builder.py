@@ -16,6 +16,25 @@ def _is_chat_message(entry: dict, chat_id: str) -> bool:
     return isinstance(content, str) and bool(content.strip())
 
 
+def _parse_log_file(path, chat_id: str) -> list[dict]:
+    try:
+        if path.stat().st_size > _MAX_LOG_SIZE:
+            return []
+    except OSError:
+        return []
+    messages = []
+    try:
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if _is_chat_message(entry, chat_id):
+                messages.append(entry)
+    except Exception:
+        return messages  # best-effort: return what we got
+    return messages
+
+
 def _collect_chat_messages(chat_id: str) -> list[dict]:
     sessions_dir = workspace.HOME / "sessions"
     if not sessions_dir.exists():
@@ -24,19 +43,7 @@ def _collect_chat_messages(chat_id: str) -> list[dict]:
     files = sorted(sessions_dir.glob("*.jsonl"), reverse=True)[:2]
     messages: list[dict] = []
     for f in files:
-        try:
-            if f.stat().st_size > _MAX_LOG_SIZE:
-                continue
-            with open(f) as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    entry = json.loads(line)
-                    if _is_chat_message(entry, chat_id):
-                        messages.append(entry)
-        except Exception:
-            continue
+        messages.extend(_parse_log_file(f, chat_id))
     return messages
 
 
