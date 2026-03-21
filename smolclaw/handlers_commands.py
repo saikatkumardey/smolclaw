@@ -208,7 +208,7 @@ async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> Non
         await cb.edit_message_text("Unknown model.")
         return
     await set_model(selected)
-    label = next(lbl for mid, lbl in AVAILABLE_MODELS if mid == selected)
+    label = next((lbl for mid, lbl in AVAILABLE_MODELS if mid == selected), selected)
     await cb.edit_message_text(
         f"✓ Switched to *{label}*\n`{selected}`\n\nAll sessions reset — next message uses the new model.",
         parse_mode="Markdown",
@@ -245,7 +245,7 @@ async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> No
         await cb.edit_message_text("Unknown effort.")
         return
     await set_effort(selected)
-    label = next(lbl for eid, lbl in AVAILABLE_EFFORTS if eid == selected)
+    label = next((lbl for eid, lbl in AVAILABLE_EFFORTS if eid == selected), selected)
     await cb.edit_message_text(
         f"✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
         parse_mode="Markdown",

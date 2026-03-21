@@ -130,7 +130,9 @@ async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
 async def _reply_chunked(message, text: str, edit_message=None) -> None:
     """Send text in <=MAX_TG_MSG-char chunks with Markdown, falling back to plain text."""
     formatted = _to_telegram_md(text)
-    chunks = [formatted[i : i + MAX_TG_MSG] for i in range(0, max(len(formatted), 1), MAX_TG_MSG)]
+    if not formatted:
+        return
+    chunks = [formatted[i : i + MAX_TG_MSG] for i in range(0, len(formatted), MAX_TG_MSG)]
     for idx, chunk in enumerate(chunks):
         if idx == 0 and edit_message is not None:
             try:
