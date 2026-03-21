@@ -28,7 +28,6 @@ from .handlers_commands import (  # noqa: F401
     on_crons,
     on_effort,
     on_effort_callback,
-    on_efforts,
     on_help,
     on_model,
     on_model_callback,

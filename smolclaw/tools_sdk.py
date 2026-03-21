@@ -243,7 +243,6 @@ async def search_sessions(args: dict) -> dict:
     return _text("\n\n".join(results))
 
 
-
 @tool(
     "telegram_send_voice",
     "Convert text to a voice message (OGG/Opus) and send it to a Telegram chat. "
@@ -374,7 +373,7 @@ async def disable_tool(args: dict) -> dict:
     return _text(f"Disabled {name} → {disabled.name}. Rename back to re-enable.")
 
 
-def _subconscious_list() -> dict:
+def _subconscious_list(args: dict) -> dict:
     from . import subconscious
     threads = subconscious.load_threads()
     if not threads:
@@ -420,7 +419,7 @@ async def update_subconscious(args: dict) -> dict:
     handler = dispatch.get(action)
     if handler is None:
         return _text(f"Error: unknown action {action!r}. Use 'add', 'resolve', or 'list'.")
-    return handler(args) if action != "list" else handler()
+    return handler(args)
 
 
 @tool(

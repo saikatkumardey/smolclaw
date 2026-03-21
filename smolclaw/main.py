@@ -324,7 +324,7 @@ def _register_handlers(bot) -> list:
         ("btw",     h.on_btw,     "Ask a side question (no history)"),
         ("context", h.on_context, "Show context window usage"),
         ("effort",  h.on_effort,  "Set thinking effort level"),
-        ("efforts", h.on_efforts, None),
+        ("efforts", h.on_effort, None),
         ("cc",      h.on_cc,      "Start a live Claude Code session"),
         ("streaming", h.on_streaming, "Toggle response streaming"),
     ]

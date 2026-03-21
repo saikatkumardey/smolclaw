@@ -203,14 +203,6 @@ def session_log(chat_id: str, role: str, content: str | dict) -> None:
     except Exception as e:
         logger.warning("session_log failed: %s", e)
 
-def _context_fill_from_result(result: ResultMessage | None) -> float:
-    if not result:
-        return 0.0
-    usage = result.usage or {}
-    used = usage.get("cache_read_input_tokens", 0) + usage.get("input_tokens", 0)
-    return used / _CONTEXT_WINDOW_TOKENS
-
-
 
 def _make_spawn_task_tool(chat_id: str, cfg: Config):
     from .tools import _send_telegram
@@ -526,7 +518,9 @@ async def _maybe_auto_rotate(chat_id: str) -> None:
     session = _sessions.get(chat_id)
     if not (session and session.last_result):
         return
-    fill = _context_fill_from_result(session.last_result)
+    usage = session.last_result.usage or {}
+    used = usage.get("cache_read_input_tokens", 0) + usage.get("input_tokens", 0)
+    fill = used / _CONTEXT_WINDOW_TOKENS
     if fill >= _AUTO_ROTATE_THRESHOLD:
         logger.info("Auto-rotating session {} (context at {:.0%})", chat_id, fill)
         handover_text = _build_auto_handover(chat_id)

@@ -64,22 +64,14 @@ class Config:
 
         data = workspace.read_json(path)
 
-        if "model" not in data:
-            env_model = os.getenv("SMOLCLAW_MODEL")
-            if env_model:
-                data["model"] = env_model
+        if "model" not in data and (env_model := os.getenv("SMOLCLAW_MODEL")):
+            data["model"] = env_model
+        if "subagent_timeout" not in data and (env_timeout := os.getenv("SMOLCLAW_SUBAGENT_TIMEOUT")):
+            try:
+                data["subagent_timeout"] = int(env_timeout)
+            except ValueError:
+                pass
 
-        if "subagent_timeout" not in data:
-            env_timeout = os.getenv("SMOLCLAW_SUBAGENT_TIMEOUT")
-            if env_timeout:
-                try:
-                    data["subagent_timeout"] = int(env_timeout)
-                except ValueError:
-                    pass
-
-        merged = dict(cls.DEFAULTS)
-        merged.update(data)
-
-        instance = cls(merged)
+        instance = cls(data)
         _cache = (str(path), mtime, instance)
         return instance

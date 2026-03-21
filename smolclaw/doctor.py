@@ -43,7 +43,6 @@ class CheckResult:
     suggestion: str = ""
 
 
-
 def _human_size(nbytes: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if nbytes < 1024:
@@ -154,7 +153,6 @@ def _check_workspace() -> list[CheckResult]:
     results.extend(_check_env_file(home))
     results.extend(_check_json_config())
     return results
-
 
 
 def _check_telegram_token(env: dict) -> list[CheckResult]:
@@ -293,7 +291,6 @@ def _check_runtime() -> list[CheckResult]:
     return results
 
 
-
 def _check_process() -> list[CheckResult]:
     results: list[CheckResult] = []
     from .daemon import is_running
@@ -305,41 +302,23 @@ def _check_process() -> list[CheckResult]:
     return results
 
 
+def _check_dir_size(label: str, path, warn_bytes: int, clean_cmd: str) -> CheckResult:
+    total, count = _dir_size(path)
+    size_str = _human_size(total)
+    if total > warn_bytes:
+        return CheckResult(Status.WARN, f"{label}: {size_str} across {count} files", f"Consider cleaning: {clean_cmd}")
+    return CheckResult(Status.OK, f"{label}: {size_str} ({count} files)")
+
+
 def _check_state() -> list[CheckResult]:
     results: list[CheckResult] = []
     home = workspace.HOME
 
-    # Session logs
     sessions_dir = home / "sessions"
-    total_bytes, file_count = _dir_size(sessions_dir)
-    size_str = _human_size(total_bytes)
-    if total_bytes > _SESSION_LOG_WARN_BYTES:
-        results.append(CheckResult(
-            Status.WARN,
-            f"Session logs: {size_str} across {file_count} files",
-            f"Consider cleaning: rm {sessions_dir}/*.jsonl",
-        ))
-    else:
-        results.append(CheckResult(
-            Status.OK,
-            f"Session logs: {size_str} ({file_count} files)",
-        ))
+    results.append(_check_dir_size("Session logs", sessions_dir, _SESSION_LOG_WARN_BYTES, f"rm {sessions_dir}/*.jsonl"))
 
-    # Uploads
     uploads_dir = home / "uploads"
-    total_bytes, file_count = _dir_size(uploads_dir)
-    size_str = _human_size(total_bytes)
-    if total_bytes > _UPLOADS_WARN_BYTES:
-        results.append(CheckResult(
-            Status.WARN,
-            f"Uploads: {size_str} across {file_count} files",
-            f"Consider cleaning: rm {uploads_dir}/*",
-        ))
-    else:
-        results.append(CheckResult(
-            Status.OK,
-            f"Uploads: {size_str} ({file_count} files)",
-        ))
+    results.append(_check_dir_size("Uploads", uploads_dir, _UPLOADS_WARN_BYTES, f"rm {uploads_dir}/*"))
 
     # Session state entries
     ss_path = workspace.SESSION_STATE
@@ -422,7 +401,6 @@ def _print_results(categories: dict[str, list[CheckResult]]) -> None:
     score_color = "green" if score >= 90 else "yellow" if score >= 70 else "red"
     console.print(f"[bold]Score:[/bold] [{score_color}]{score}/100[/{score_color}]")
     console.print()
-
 
 
 def run() -> int:

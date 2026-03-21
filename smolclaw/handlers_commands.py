@@ -22,7 +22,7 @@ from .agent import (
     set_model,
     set_streaming,
 )
-from .auth import require_allowed
+from .auth import is_allowed, require_allowed
 from .session_state import SessionState
 from .tool_loader import load_custom_tools
 from .tools_sdk import CUSTOM_TOOLS
@@ -196,7 +196,6 @@ async def on_models(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    from .auth import is_allowed
     cb = update.callback_query
     await cb.answer()
     if not (cb.data or "").startswith("model:"):
@@ -232,13 +231,8 @@ async def on_effort(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-@require_allowed
-async def on_efforts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await on_effort(update, ctx)
-
 
 async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    from .auth import is_allowed
     cb = update.callback_query
     await cb.answer()
     if not (cb.data or "").startswith("effort:"):

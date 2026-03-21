@@ -186,56 +186,51 @@ def _build_cmd(prompt: str, session: CCSession) -> list[str]:
     return cmd
 
 
+def _make_env() -> dict:
+    env = {**os.environ}
+    env.pop("CLAUDECODE", None)
+    return env
+
+
+async def _spawn_proc(session: CCSession, prompt: str) -> asyncio.subprocess.Process:
+    env = _make_env()
+    return await asyncio.create_subprocess_exec(
+        *_build_cmd(prompt, session),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=session.working_dir,
+        env=env,
+    )
+
+
 async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None = None) -> None:
     if chat_id in _sessions and _sessions[chat_id].process is not None:
         await bot.send_message(chat_id=chat_id, text="CC session already running. Send /cc stop first.")
         return
 
     msg = await bot.send_message(chat_id=chat_id, text="CC: starting…")
-
     session = CCSession(
         chat_id=chat_id,
         output_msg_id=msg.message_id,
         working_dir=working_dir or str(workspace.HOME),
     )
-
-    # Reuse session_id if we had one before
     old = _sessions.get(chat_id)
     if old and old.session_id:
         session.session_id = old.session_id
 
-    env = {**os.environ}
-    env.pop("CLAUDECODE", None)
-
-    cmd = _build_cmd(prompt, session)
-
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=session.working_dir,
-            env=env,
-        )
+        session.process = await _spawn_proc(session, prompt)
     except Exception as e:
-        await bot.edit_message_text(
-            chat_id=chat_id, message_id=msg.message_id,
-            text=f"Failed to start CC: {e}",
-        )
+        await bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"Failed to start CC: {e}")
         return
 
-    session.process = proc
     _sessions[chat_id] = session
     session.task = asyncio.create_task(_stream_loop(session, bot))
 
 
 async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     session = _sessions.get(chat_id)
-    if not session:
-        return False
-    if session.process is not None:
-        return False
-    if not session.session_id:
+    if not session or session.process is not None or not session.session_id:
         return False
 
     msg = await bot.send_message(chat_id=chat_id, text="CC: continuing…")
@@ -243,27 +238,12 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     session.buffer = ""
     session.last_edit = 0.0
 
-    env = {**os.environ}
-    env.pop("CLAUDECODE", None)
-
-    cmd = _build_cmd(prompt, session)
-
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=session.working_dir,
-            env=env,
-        )
+        session.process = await _spawn_proc(session, prompt)
     except Exception as e:
-        await bot.edit_message_text(
-            chat_id=chat_id, message_id=msg.message_id,
-            text=f"CC continue failed: {e}",
-        )
+        await bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"CC continue failed: {e}")
         return False
 
-    session.process = proc
     session.task = asyncio.create_task(_stream_loop(session, bot))
     return True
 
