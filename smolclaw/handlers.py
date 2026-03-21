@@ -172,13 +172,28 @@ async def _run_agent_and_reply_streaming(
     accumulated: list[str] = []  # mutable buffer shared with draft sender
     draft_dirty = False  # flag: new text since last draft
     done_event = asyncio.Event()
+    thinking_msg = None  # 💭 placeholder, deleted on first draft
+
+    # Show thinking bubble immediately
+    if message:
+        try:
+            thinking_msg = await message.reply_text("💭")
+        except Exception:
+            logger.debug("failed to send thinking placeholder", exc_info=True)
 
     async def _draft_sender():
         """Periodically send accumulated text as a draft."""
-        nonlocal draft_dirty
+        nonlocal draft_dirty, thinking_msg
         while not done_event.is_set():
             if draft_dirty and accumulated:
                 draft_dirty = False
+                # Remove thinking bubble on first real draft
+                if thinking_msg is not None:
+                    try:
+                        await thinking_msg.delete()
+                    except Exception:
+                        pass
+                    thinking_msg = None
                 text = "".join(accumulated)[:MAX_TG_MSG]
                 try:
                     await bot.send_message_draft(
@@ -220,6 +235,11 @@ async def _run_agent_and_reply_streaming(
             await sender_task
         except asyncio.CancelledError:
             pass
+        if thinking_msg is not None:
+            try:
+                await thinking_msg.delete()
+            except Exception:
+                pass
 
 
 async def _run_agent_and_reply(
