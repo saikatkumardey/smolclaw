@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 
 from . import workspace
 from .agent import (
+    cancel_all_tasks,
     get_streaming,
     interrupt_session,
     reset_session,
@@ -278,6 +279,23 @@ async def on_cancel(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = str(update.effective_chat.id)
     interrupted = await interrupt_session(chat_id)
     await update.message.reply_text("Cancelled." if interrupted else "Nothing to cancel.")
+
+
+@require_allowed
+async def on_stop(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    """Stop everything: interrupt current turn, cancel all background tasks."""
+    chat_id = str(update.effective_chat.id)
+    interrupted = await interrupt_session(chat_id)
+    tasks_cancelled = cancel_all_tasks(chat_id)
+    parts = []
+    if interrupted:
+        parts.append("Interrupted active turn")
+    if tasks_cancelled:
+        parts.append(f"Cancelled {tasks_cancelled} background task{'s' if tasks_cancelled != 1 else ''}")
+    if parts:
+        await update.message.reply_text("Stopped. " + ". ".join(parts) + ".")
+    else:
+        await update.message.reply_text("Nothing running.")
 
 
 @require_allowed

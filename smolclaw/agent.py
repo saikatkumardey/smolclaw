@@ -192,6 +192,21 @@ def list_tasks() -> list[dict]:
     return rows
 
 
+def cancel_all_tasks(chat_id: str) -> int:
+    """Cancel all running background tasks for a chat. Returns count cancelled."""
+    cancelled = 0
+    to_remove = []
+    for tid, info in _task_registry.items():
+        if info.get("chat_id") == chat_id and not info["task"].done():
+            info["task"].cancel()
+            info["status"] = "cancelled"
+            cancelled += 1
+            to_remove.append(tid)
+    for tid in to_remove:
+        _task_registry.pop(tid, None)
+    return cancelled
+
+
 def session_log(chat_id: str, role: str, content: str | dict) -> None:
     """Append a line to today's session log. JSONL, one file per day."""
     try:
@@ -289,6 +304,7 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
             "description": description,
             "started_at": time.time(),
             "status": "running",
+            "chat_id": chat_id,
         }
         return {"content": [{"type": "text", "text": f"Task started (ID: {task_id}). I'll message you when it's done."}]}
 

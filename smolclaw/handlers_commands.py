@@ -73,6 +73,7 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/effort — switch thinking effort (low/medium/high/max)\n"
         "/reset — clear conversation history\n"
         "/cancel — cancel the current running task\n"
+        "/stop — stop everything (current task + background tasks)\n"
         "/tasks — list background tasks\n"
         "/crons — list scheduled jobs\n"
         "/reload — reload skills and memory\n"

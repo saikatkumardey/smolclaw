@@ -332,6 +332,7 @@ def _register_handlers(bot) -> list:
         ("models",  h.on_models,  "Switch Claude model"),
         ("reset",   h.on_reset,   "Clear conversation history"),
         ("cancel",  h.on_cancel,  "Cancel the current running task"),
+        ("stop",    h.on_stop,    "Stop everything and return to conversation"),
         ("tasks",   h.on_tasks,   "List background tasks"),
         ("crons",   h.on_crons,   "List scheduled jobs"),
         ("reload",  h.on_reload,  "Reload skills and memory"),
