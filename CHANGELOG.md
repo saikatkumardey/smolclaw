@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.7] - 2026-03-21
+
+- feat: debounce rapid messages — wait 1.5s before processing
+
+
 ## [0.8.6] - 2026-03-21
 
 - fix: show thinking bubble in streaming mode before first draft arrives
