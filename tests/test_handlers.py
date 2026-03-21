@@ -118,7 +118,8 @@ class TestOnMessage:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Reply!"):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Reply!"), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
         # First reply_text sends "..." placeholder
         update.message.reply_text.assert_awaited()
@@ -134,7 +135,8 @@ class TestOnMessage:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
         update.message.reply_text.assert_awaited()
         # Error edits the placeholder instead of sending a new message
@@ -180,7 +182,8 @@ class TestOnPhoto:
         file_mock = AsyncMock()
         ctx.bot.get_file = AsyncMock(return_value=file_mock)
 
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Saw it"):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Saw it"), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_photo(update, ctx)
         file_mock.download_to_drive.assert_awaited_once()
         update.message.reply_text.assert_awaited()
@@ -210,7 +213,8 @@ class TestOnDocument:
         file_mock = AsyncMock()
         ctx.bot.get_file = AsyncMock(return_value=file_mock)
 
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Got it"):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Got it"), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_document(update, ctx)
         file_mock.download_to_drive.assert_awaited_once()
         update.message.reply_text.assert_awaited()
@@ -227,7 +231,8 @@ class TestErrorClassification:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=TimeoutError()):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=TimeoutError()), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
@@ -239,7 +244,8 @@ class TestErrorClassification:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=PermissionError("denied")):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=PermissionError("denied")), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
@@ -251,7 +257,8 @@ class TestErrorClassification:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=ConnectionError("no network")):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=ConnectionError("no network")), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
@@ -263,7 +270,8 @@ class TestErrorClassification:
         from smolclaw.handlers import on_message
         update = _make_update()
         ctx = _make_context()
-        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("wat")):
+        with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("wat")), \
+             patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]

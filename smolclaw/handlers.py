@@ -155,7 +155,7 @@ async def _send_error(message, placeholder, error_msg: str) -> None:
         await message.reply_text(error_msg)
 
 
-_DRAFT_INTERVAL = 0.8  # minimum seconds between draft updates
+_DRAFT_INTERVAL = 0.5  # minimum seconds between draft updates
 _DRAFT_ID = 1  # constant draft_id; same ID = animated updates
 
 
@@ -163,27 +163,43 @@ async def _run_agent_and_reply_streaming(
     bot, message, chat_id: str, agent_msg: str,
     *, context_warn: bool = False,
 ) -> None:
-    """Run agent with streaming drafts via sendMessageDraft."""
-    accumulated = ""
-    last_draft_time = 0.0
+    """Run agent with streaming drafts via sendMessageDraft.
 
+    Uses a background task to send drafts so event consumption is never
+    blocked by Telegram API latency.
+    """
+    accumulated: list[str] = []  # mutable buffer shared with draft sender
+    draft_dirty = False  # flag: new text since last draft
+    done_event = asyncio.Event()
+
+    async def _draft_sender():
+        """Periodically send accumulated text as a draft."""
+        nonlocal draft_dirty
+        while not done_event.is_set():
+            if draft_dirty and accumulated:
+                draft_dirty = False
+                text = "".join(accumulated)[:MAX_TG_MSG]
+                try:
+                    await bot.send_message_draft(
+                        chat_id=int(chat_id),
+                        draft_id=_DRAFT_ID,
+                        text=text,
+                    )
+                except Exception:
+                    logger.debug("send_message_draft failed", exc_info=True)
+            try:
+                await asyncio.wait_for(done_event.wait(), timeout=_DRAFT_INTERVAL)
+            except TimeoutError:
+                pass
+
+    sender_task = asyncio.create_task(_draft_sender())
     try:
         async for event_type, data in agent_run_streaming(chat_id=chat_id, user_message=agent_msg):
             if event_type == "text_delta":
-                accumulated += data
-                now = asyncio.get_event_loop().time()
-                if (now - last_draft_time) >= _DRAFT_INTERVAL and accumulated.strip():
-                    draft_text = accumulated[:MAX_TG_MSG]
-                    try:
-                        await bot.send_message_draft(
-                            chat_id=int(chat_id),
-                            draft_id=_DRAFT_ID,
-                            text=draft_text,
-                        )
-                        last_draft_time = now
-                    except Exception:
-                        logger.debug("send_message_draft failed", exc_info=True)
+                accumulated.append(data)
+                draft_dirty = True
             elif event_type == "done":
+                done_event.set()
                 reply = data
                 if not reply or _is_tool_noise(reply):
                     return
@@ -196,6 +212,13 @@ async def _run_agent_and_reply_streaming(
         logger.exception("Streaming error: %s", e)
         if message:
             await message.reply_text(_classify_error(e))
+    finally:
+        done_event.set()
+        sender_task.cancel()
+        try:
+            await sender_task
+        except asyncio.CancelledError:
+            pass
 
 
 async def _run_agent_and_reply(
