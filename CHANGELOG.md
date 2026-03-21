@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.4] - 2026-03-21
+
+- fix: update summary only shows changes between version tags
+
+
 ## [0.8.3] - 2026-03-21
 
 - feat: add delegate tool for synchronous sub-agent execution on Sonnet
