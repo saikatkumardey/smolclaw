@@ -264,31 +264,23 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     return True
 
 
-async def _cancel_task(task: asyncio.Task) -> None:
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-
-
-async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
-    try:
-        proc.terminate()
-        await asyncio.wait_for(proc.wait(), timeout=5)
-    except (TimeoutError, ProcessLookupError):
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-
-
 async def stop_session(chat_id: str) -> bool:
     session = _sessions.pop(chat_id, None)
     if not session:
         return False
     if session.task:
-        await _cancel_task(session.task)
+        session.task.cancel()
+        try:
+            await session.task
+        except asyncio.CancelledError:
+            pass
     if session.process:
-        await _terminate_process(session.process)
+        try:
+            session.process.terminate()
+            await asyncio.wait_for(session.process.wait(), timeout=5)
+        except (TimeoutError, ProcessLookupError):
+            try:
+                session.process.kill()
+            except ProcessLookupError:
+                pass
     return True

@@ -31,6 +31,13 @@ def _text(t: str) -> dict:
     return {"content": [{"type": "text", "text": t}]}
 
 
+def _check_allowed(chat_id: str) -> dict | None:
+    """Return error dict if chat_id is not allowed, else None."""
+    if not is_allowed(chat_id):
+        return _text(f"Error: chat_id {chat_id!r} is not in ALLOWED_USER_IDS.")
+    return None
+
+
 @tool(
     "telegram_send",
     "Send a new Telegram message. Each response should be a single new message. "
@@ -38,8 +45,8 @@ def _text(t: str) -> dict:
     {"chat_id": str, "message": str},
 )
 async def telegram_send(args: dict) -> dict:
-    if not is_allowed(args["chat_id"]):
-        return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
+    if err := _check_allowed(args["chat_id"]):
+        return err
     text = await asyncio.to_thread(_send_telegram, args["chat_id"], args["message"])
     return _text(text)
 
@@ -52,8 +59,8 @@ async def telegram_send(args: dict) -> dict:
     {"chat_id": str, "message_id": str, "message": str},
 )
 async def telegram_edit(args: dict) -> dict:
-    if not is_allowed(args["chat_id"]):
-        return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
+    if err := _check_allowed(args["chat_id"]):
+        return err
     try:
         message_id = int(args["message_id"])
     except (ValueError, TypeError):
@@ -116,8 +123,8 @@ async def self_update(args: dict) -> dict:
 
 @tool("telegram_send_file", "Send a local file (markdown, CSV, script, image, etc.) to a Telegram chat_id.", {"chat_id": str, "file_path": str})
 async def telegram_send_file(args: dict) -> dict:
-    if not is_allowed(args["chat_id"]):
-        return _text(f"Error: chat_id {args['chat_id']!r} is not in ALLOWED_USER_IDS.")
+    if err := _check_allowed(args["chat_id"]):
+        return err
     resolved = Path(args["file_path"]).resolve()
     try:
         resolved.relative_to(workspace.HOME.resolve())
@@ -264,8 +271,8 @@ async def telegram_send_voice(args: dict) -> dict:
     import tempfile
 
     chat_id = str(args["chat_id"])
-    if not is_allowed(chat_id):
-        return _text(f"Error: chat_id {chat_id!r} is not in ALLOWED_USER_IDS.")
+    if err := _check_allowed(chat_id):
+        return err
 
     text = str(args["text"])
     voice = str(args.get("voice", "en-US-AriaNeural") or "en-US-AriaNeural")
@@ -294,8 +301,8 @@ async def telegram_send_voice(args: dict) -> dict:
 )
 async def telegram_react(args: dict) -> dict:
     chat_id = str(args["chat_id"])
-    if not is_allowed(chat_id):
-        return _text(f"Error: chat_id {chat_id!r} is not in ALLOWED_USER_IDS.")
+    if err := _check_allowed(chat_id):
+        return err
     try:
         message_id = int(args["message_id"])
     except (ValueError, TypeError):

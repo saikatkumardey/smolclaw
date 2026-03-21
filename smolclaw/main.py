@@ -399,15 +399,20 @@ def start(
         raise typer.Exit(1)
 
 
-@app.command()
-def stop() -> None:
-    """Stop the running SmolClaw daemon."""
+def _systemd_active() -> bool:
     import subprocess
     result = subprocess.run(
         ["systemctl", "--user", "is-active", "smolclaw.service"],
         capture_output=True, text=True,
     )
-    if result.stdout.strip() in ("active", "activating"):
+    return result.stdout.strip() in ("active", "activating")
+
+
+@app.command()
+def stop() -> None:
+    """Stop the running SmolClaw daemon."""
+    if _systemd_active():
+        import subprocess
         subprocess.run(["systemctl", "--user", "stop", "smolclaw.service"], check=True)
         typer.echo("Stopped via systemd.")
         return
@@ -424,12 +429,8 @@ def stop() -> None:
 @app.command()
 def restart() -> None:
     """Restart the SmolClaw daemon."""
-    import subprocess
-    result = subprocess.run(
-        ["systemctl", "--user", "is-active", "smolclaw.service"],
-        capture_output=True, text=True,
-    )
-    if result.stdout.strip() in ("active", "activating"):
+    if _systemd_active():
+        import subprocess
         typer.echo("Detected systemd user service — delegating to systemctl --user restart...")
         subprocess.run(["systemctl", "--user", "restart", "smolclaw.service"], check=True)
         typer.echo("Restarted via systemd.")

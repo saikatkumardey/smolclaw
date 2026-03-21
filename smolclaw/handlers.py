@@ -114,33 +114,22 @@ def _strip_md(text: str) -> str:
     return re.sub(r"[*_`\[\]]", "", text)
 
 
-async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
-    """Send/edit with Markdown, falling back to stripped plain text on failure."""
-    fn = target.edit_text if edit else target.reply_text
+async def _reply_md(message, text: str) -> None:
+    """Reply with Markdown, falling back to stripped plain text on failure."""
     try:
-        await fn(text, parse_mode="Markdown")
+        await message.reply_text(text, parse_mode="Markdown")
     except Exception:
-        # Markdown rejected — strip formatting and send plain text.
-        # For edit_text this is safe (same message). For reply_text the
-        # Telegram API guarantees the message was NOT delivered on error,
-        # so a second attempt won't duplicate.
-        await fn(_strip_md(text))
+        await message.reply_text(_strip_md(text))
 
 
-async def _reply_chunked(message, text: str, edit_message=None) -> None:
+async def _reply_chunked(message, text: str) -> None:
     """Send text in <=MAX_TG_MSG-char chunks with Markdown, falling back to plain text."""
     formatted = _to_telegram_md(text)
     if not formatted:
         return
     chunks = [formatted[i : i + MAX_TG_MSG] for i in range(0, len(formatted), MAX_TG_MSG)]
-    for idx, chunk in enumerate(chunks):
-        if idx == 0 and edit_message is not None:
-            try:
-                await _send_md_msg(edit_message, chunk, edit=True)
-            except Exception:
-                await _send_md_msg(message, chunk)
-        else:
-            await _send_md_msg(message, chunk)
+    for chunk in chunks:
+        await _reply_md(message, chunk)
 
 
 async def _send_reply(bot, message, chat_id: str, reply: str) -> None:

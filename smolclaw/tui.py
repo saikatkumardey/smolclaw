@@ -12,7 +12,7 @@ from textual.worker import Worker, WorkerState
 from smolclaw.agent import get_current_model, reset_session
 from smolclaw.agent import run as agent_run
 from smolclaw.scheduler import setup_scheduler
-from smolclaw.tools import TelegramSender
+import smolclaw.tools as _tools_mod
 
 _BG = "#1a1b26"
 _PURPLE = "#bb9af7"
@@ -197,12 +197,12 @@ class SmolClawApp(App):
     async def on_mount(self) -> None:
         self._drain_task = None
         self._scheduler = None
-        self._original_send = TelegramSender.send
+        self._original_send = _tools_mod._send_telegram
         self._cron_queue: asyncio.Queue[str] = asyncio.Queue()
         _loop = asyncio.get_running_loop()
-        TelegramSender.send = lambda _self_s, cid, msg: _loop.call_soon_threadsafe(
-            self._cron_queue.put_nowait, msg
-        )
+        def _intercept_send(cid, msg):
+            _loop.call_soon_threadsafe(self._cron_queue.put_nowait, msg)
+        _tools_mod._send_telegram = _intercept_send
         self._scheduler = setup_scheduler()
         self._scheduler.start()
         self._drain_task = asyncio.create_task(self._drain_cron_queue())
@@ -216,7 +216,7 @@ class SmolClawApp(App):
             self._drain_task.cancel()
             await asyncio.gather(self._drain_task, return_exceptions=True)
         if self._original_send is not None:
-            TelegramSender.send = self._original_send
+            _tools_mod._send_telegram = self._original_send
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         msg = event.value.strip()
