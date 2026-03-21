@@ -226,8 +226,7 @@ async def _run_agent_and_reply_streaming(
                     _used, fill = _context_fill(chat_id)
                     if fill >= CONTEXT_WARN_THRESHOLD:
                         reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
-                if not drafts_sent:
-                    await _send_reply(bot, message, chat_id, reply, placeholder=None)
+                await _send_reply(bot, message, chat_id, reply, placeholder=None)
     except Exception as e:
         logger.exception("Streaming error: %s", e)
         if message:
