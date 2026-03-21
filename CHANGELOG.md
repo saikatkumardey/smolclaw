@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.8] - 2026-03-21
+
+- feat: make debounce delay configurable via debounce_seconds
+
+
 ## [0.8.7] - 2026-03-21
 
 - feat: debounce rapid messages — wait 1.5s before processing
