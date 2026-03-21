@@ -46,8 +46,9 @@ async def telegram_send(args: dict) -> dict:
 
 @tool(
     "telegram_edit",
-    "Edit an existing Telegram message by message_id. Use this to update a previous message "
-    "instead of sending a new one. Ideal for progress updates or refining a response.",
+    "Edit an existing Telegram message by message_id. ONLY use for interim progress updates "
+    "(e.g. updating a 'working on it...' placeholder). NEVER use to rewrite or refine a "
+    "response you already sent — always send a new message instead.",
     {"chat_id": str, "message_id": str, "message": str},
 )
 async def telegram_edit(args: dict) -> dict:
