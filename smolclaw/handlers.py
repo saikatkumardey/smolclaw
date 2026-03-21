@@ -188,28 +188,14 @@ async def _run_agent_and_reply_streaming(
     accumulated: list[str] = []  # mutable buffer shared with draft sender
     draft_dirty = False  # flag: new text since last draft
     done_event = asyncio.Event()
-    thinking_msg = None  # 💭 placeholder, deleted on first draft
-
-    # Show thinking bubble immediately
-    if message:
-        try:
-            thinking_msg = await message.reply_text("💭")
-        except Exception:
-            logger.debug("failed to send thinking placeholder", exc_info=True)
+    drafts_sent = False  # track if any drafts were delivered
 
     async def _draft_sender():
         """Periodically send accumulated text as a draft."""
-        nonlocal draft_dirty, thinking_msg
+        nonlocal draft_dirty, drafts_sent
         while not done_event.is_set():
             if draft_dirty and accumulated:
                 draft_dirty = False
-                # Remove thinking bubble on first real draft
-                if thinking_msg is not None:
-                    try:
-                        await thinking_msg.delete()
-                    except Exception:
-                        pass
-                    thinking_msg = None
                 text = "".join(accumulated)[:MAX_TG_MSG]
                 try:
                     await bot.send_message_draft(
@@ -217,6 +203,7 @@ async def _run_agent_and_reply_streaming(
                         draft_id=_DRAFT_ID,
                         text=text,
                     )
+                    drafts_sent = True
                 except Exception:
                     logger.debug("send_message_draft failed", exc_info=True)
             try:
@@ -239,7 +226,8 @@ async def _run_agent_and_reply_streaming(
                     _used, fill = _context_fill(chat_id)
                     if fill >= CONTEXT_WARN_THRESHOLD:
                         reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
-                await _send_reply(bot, message, chat_id, reply, placeholder=None)
+                if not drafts_sent:
+                    await _send_reply(bot, message, chat_id, reply, placeholder=None)
     except Exception as e:
         logger.exception("Streaming error: %s", e)
         if message:
@@ -251,11 +239,6 @@ async def _run_agent_and_reply_streaming(
             await sender_task
         except asyncio.CancelledError:
             pass
-        if thinking_msg is not None:
-            try:
-                await thinking_msg.delete()
-            except Exception:
-                pass
 
 
 async def _run_agent_and_reply(
@@ -270,28 +253,19 @@ async def _run_agent_and_reply(
         )
         return
 
-    placeholder = None
     try:
-        if use_placeholder:
-            placeholder = await message.reply_text("💭")
-            agent_msg = _inject_reply_id(agent_msg, chat_id, placeholder.message_id)
         async with _TypingLoop(bot, chat_id):
             reply = await agent_run(chat_id=chat_id, user_message=agent_msg)
         if not reply or _is_tool_noise(reply):
-            if placeholder:
-                try:
-                    await placeholder.delete()
-                except Exception:
-                    logger.debug("failed to delete placeholder message", exc_info=True)
             return
         if context_warn:
             _used, fill = _context_fill(chat_id)
             if fill >= CONTEXT_WARN_THRESHOLD:
                 reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
-        await _send_reply(bot, message, chat_id, reply, placeholder)
+        await _send_reply(bot, message, chat_id, reply, placeholder=None)
     except Exception as e:
         logger.exception("Error: %s", e)
-        await _send_error(message, placeholder, _classify_error(e))
+        await _send_error(message, None, _classify_error(e))
 
 
 @require_allowed
@@ -357,9 +331,7 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     system = "You are a helpful assistant. Be concise and direct. Use Telegram Markdown v1 formatting (*bold*, _italic_). No headers."
     btw_model = Config.load().get("btw_model")
 
-    placeholder = None
     try:
-        placeholder = await msg.reply_text("💭")
         async with _TypingLoop(context.bot, chat_id):
             result = await asyncio.to_thread(
                 _sp.run,
@@ -373,17 +345,10 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         reply = result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr[:300]}"
         btw_reply = f"_/btw_\n{reply}" if reply else "(no response)"
-        await _reply_chunked(msg, btw_reply, edit_message=placeholder)
+        await _reply_chunked(msg, btw_reply)
     except Exception as e:
         logger.exception("Error handling /btw: %s", e)
-        error_msg = _classify_error(e)
-        if placeholder:
-            try:
-                await placeholder.edit_text(error_msg)
-            except Exception:
-                await msg.reply_text(error_msg)
-        else:
-            await msg.reply_text(error_msg)
+        await msg.reply_text(_classify_error(e))
 
 
 @require_allowed

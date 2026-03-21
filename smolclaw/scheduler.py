@@ -70,11 +70,16 @@ def _is_auth_error(exc: Exception) -> bool:
     return "401" in exc_str or "authentication" in exc_str or "oauth" in exc_str or ("token" in exc_str and "expired" in exc_str)
 
 
+_AUTH_REMIND_INTERVAL = 10  # re-alert every N failures after threshold
+
+
 def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
     """Track consecutive auth failures and send an alert after threshold."""
     global _auth_fail_count, _auth_alert_sent
     _auth_fail_count += 1
-    if _auth_fail_count >= _AUTH_ALERT_THRESHOLD and not _auth_alert_sent and deliver_to:
+    if not deliver_to:
+        return
+    if _auth_fail_count >= _AUTH_ALERT_THRESHOLD and not _auth_alert_sent:
         _telegram.send(
             chat_id=deliver_to,
             message=f"⚠️ AUTH DOWN — {_auth_fail_count} consecutive auth failures. "
@@ -82,7 +87,13 @@ def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
             f"Please run: claude /login"
         )
         _auth_alert_sent = True
-    elif deliver_to and not _auth_alert_sent:
+    elif _auth_alert_sent and _auth_fail_count % _AUTH_REMIND_INTERVAL == 0:
+        _telegram.send(
+            chat_id=deliver_to,
+            message=f"⚠️ AUTH STILL DOWN — {_auth_fail_count} consecutive failures. "
+            f"Please run: claude /login"
+        )
+    elif not _auth_alert_sent:
         _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
 
 

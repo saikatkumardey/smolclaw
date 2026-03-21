@@ -130,13 +130,10 @@ class TestOnMessage:
             await on_message(update, ctx)
             from smolclaw.handlers import flush_debounce
             await flush_debounce("123")
-        # First reply_text sends placeholder
+        # Reply sent directly (no placeholder)
         update.message.reply_text.assert_awaited()
-        # Final reply edits the placeholder in place
-        placeholder = update.message.reply_text.return_value
-        placeholder.edit_text.assert_awaited()
-        args = placeholder.edit_text.await_args_list[0]
-        assert "Reply!" in args[0][0]
+        calls = update.message.reply_text.await_args_list
+        assert any("Reply!" in str(c) for c in calls)
 
     @pytest.mark.asyncio
     async def test_agent_error_sends_fallback(self, monkeypatch):
@@ -149,12 +146,10 @@ class TestOnMessage:
             await on_message(update, ctx)
             from smolclaw.handlers import flush_debounce
             await flush_debounce("123")
+        # Error sent directly (no placeholder)
         update.message.reply_text.assert_awaited()
-        # Error edits the placeholder instead of sending a new message
-        placeholder = update.message.reply_text.return_value
-        placeholder.edit_text.assert_awaited()
-        args = placeholder.edit_text.await_args_list[-1]
-        assert "wrong" in args[0][0].lower()
+        calls = update.message.reply_text.await_args_list
+        assert any("wrong" in str(c).lower() for c in calls)
 
     @pytest.mark.asyncio
     async def test_not_allowed_user_ignored(self, monkeypatch):
@@ -247,8 +242,8 @@ class TestErrorClassification:
             await on_message(update, ctx)
             from smolclaw.handlers import flush_debounce
             await flush_debounce("123")
-        placeholder = update.message.reply_text.return_value
-        msg = placeholder.edit_text.await_args_list[-1][0][0]
+        calls = update.message.reply_text.await_args_list
+        msg = calls[-1][0][0]
         assert "timed out" in msg.lower() or "timeout" in msg.lower()
 
     @pytest.mark.asyncio
@@ -262,8 +257,8 @@ class TestErrorClassification:
             await on_message(update, ctx)
             from smolclaw.handlers import flush_debounce
             await flush_debounce("123")
-        placeholder = update.message.reply_text.return_value
-        msg = placeholder.edit_text.await_args_list[-1][0][0]
+        calls = update.message.reply_text.await_args_list
+        msg = calls[-1][0][0]
         assert "permission" in msg.lower()
 
     @pytest.mark.asyncio
@@ -277,8 +272,8 @@ class TestErrorClassification:
             await on_message(update, ctx)
             from smolclaw.handlers import flush_debounce
             await flush_debounce("123")
-        placeholder = update.message.reply_text.return_value
-        msg = placeholder.edit_text.await_args_list[-1][0][0]
+        calls = update.message.reply_text.await_args_list
+        msg = calls[-1][0][0]
         assert "connection" in msg.lower()
 
     @pytest.mark.asyncio
@@ -292,8 +287,8 @@ class TestErrorClassification:
             await on_message(update, ctx)
             from smolclaw.handlers import flush_debounce
             await flush_debounce("123")
-        placeholder = update.message.reply_text.return_value
-        msg = placeholder.edit_text.await_args_list[-1][0][0]
+        calls = update.message.reply_text.await_args_list
+        msg = calls[-1][0][0]
         assert "wrong" in msg.lower()
         assert "wat" not in msg  # should not leak internal error
 

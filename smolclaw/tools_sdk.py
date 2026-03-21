@@ -148,7 +148,11 @@ async def update_config(args: dict) -> dict:
     # Coerce to the expected type from DEFAULTS
     expected_type = type(Config.DEFAULTS[key])
     try:
-        value = expected_type(args["value"])
+        raw = args["value"]
+        if expected_type is bool:
+            value = raw.lower() in ("true", "1", "yes")
+        else:
+            value = expected_type(raw)
         cfg.set(key, value)
     except (KeyError, TypeError, ValueError) as e:
         return _text(f"Error: {e}")
