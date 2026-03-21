@@ -17,9 +17,11 @@ from .agent import (
     get_current_effort,
     get_current_model,
     get_last_result,
+    get_streaming,
     list_tasks,
     set_effort,
     set_model,
+    set_streaming,
 )
 from .auth import require_allowed
 from .session_state import SessionState
@@ -78,6 +80,7 @@ async def on_help(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         "/update — update smolclaw and restart\n"
         "/btw — ask a side question (no conversation history)\n"
         "/cc <prompt> — run Claude Code (streaming)\n"
+        "/streaming — toggle response streaming\n"
         "/context — show context window usage\n\n"
         "Or just talk to me."
     )
@@ -319,3 +322,12 @@ async def on_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await _edit(f"Updated. Restarting…\n\n{summary}")
     os.kill(os.getpid(), signal.SIGTERM)
+
+
+@require_allowed
+async def on_streaming(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    current = get_streaming()
+    new_val = not current
+    await set_streaming(new_val)
+    label = "ON" if new_val else "OFF"
+    await update.message.reply_text(f"Streaming: {label}")

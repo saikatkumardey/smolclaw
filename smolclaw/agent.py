@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
+    StreamEvent,
     TextBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
@@ -81,6 +82,15 @@ async def set_effort(effort: str) -> None:
     cfg.set("effort", effort)
     for chat_id in list(_sessions.keys()):
         await reset_session(chat_id)
+
+
+def get_streaming() -> bool:
+    return Config.load().get("streaming")
+
+
+async def set_streaming(enabled: bool) -> None:
+    """Persist streaming toggle. No session reset needed."""
+    Config.load().set("streaming", enabled)
 
 
 @dataclass
@@ -338,6 +348,7 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
         cwd=str(workspace.HOME),
         max_turns=_select_max_turns(chat_id, cfg),
         effort=cfg.get("effort"),
+        include_partial_messages=True,
     )
 
 
@@ -391,6 +402,95 @@ async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
     if tool_names:
         return f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
     return "(no response)"
+
+
+async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
+    """Execute one agent turn, yielding (event_type, data) tuples.
+
+    Yields:
+        ("text_delta", str) -- incremental text chunk from streaming
+        ("done", str)       -- final full response text
+    """
+    client = _sessions[chat_id].client
+    await client.query(timestamped_message)
+    parts: list[str] = []
+    tool_names: list[str] = []
+    async for msg in client.receive_response():
+        if isinstance(msg, StreamEvent):
+            if msg.parent_tool_use_id is not None:
+                continue
+            event = msg.event
+            if event.get("type") == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    text = delta.get("text", "")
+                    if text:
+                        yield ("text_delta", text)
+        elif isinstance(msg, AssistantMessage):
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    parts.append(block.text)
+                elif isinstance(block, ToolUseBlock):
+                    tool_names.append(block.name)
+        elif isinstance(msg, ResultMessage):
+            _sessions[chat_id].last_result = msg
+            _log_result(chat_id, msg)
+
+    if parts:
+        yield ("done", "\n".join(parts))
+    elif tool_names:
+        yield ("done", f"Done. (used: {', '.join(dict.fromkeys(tool_names))})")
+    else:
+        yield ("done", "(no response)")
+
+
+async def run_streaming(chat_id: str, user_message: str):
+    """Run one turn, yielding (event_type, data) for streaming.
+
+    Same session management as run(). Final yield is always ("done", full_reply).
+    """
+    dynamic_tools = load_custom_tools()
+    current_tool_names = frozenset(t.name for t in dynamic_tools)
+    dynamic_mcp_server = (
+        create_sdk_mcp_server(name="dynamic", version="1.0.0", tools=dynamic_tools)
+        if dynamic_tools else None
+    )
+
+    lock = _session_locks[chat_id]
+    async with lock:
+        await _ensure_session(chat_id, current_tool_names, dynamic_mcp_server)
+        timestamped_message = f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
+        session_log(chat_id, "user", user_message)
+
+        reply = "(no response)"
+        try:
+            async for event_type, data in _execute_turn_streaming(chat_id, timestamped_message):
+                if event_type == "done":
+                    reply = data
+                else:
+                    yield (event_type, data)
+        except Exception as e:
+            logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
+            reply = f"Something went wrong ({type(e).__name__}). Please try again."
+        finally:
+            session = _sessions.get(chat_id)
+            if session and session.handover_pending:
+                handover_clear()
+                session.handover_pending = False
+
+        session_log(chat_id, "assistant", reply)
+        yield ("done", reply)
+
+        try:
+            await _maybe_auto_rotate(chat_id)
+        except Exception as e:
+            logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
+            _sessions.pop(chat_id, None)
+
+    if chat_id.startswith("cron:"):
+        _session_locks.pop(chat_id, None)
+    else:
+        _prune_stale_locks()
 
 
 def _log_result(chat_id: str, msg: ResultMessage) -> None:

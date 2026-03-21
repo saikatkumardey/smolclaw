@@ -11,8 +11,10 @@ from telegram.ext import ContextTypes
 
 from . import workspace
 from .agent import (
+    get_streaming,
     interrupt_session,
     reset_session,
+    run_streaming as agent_run_streaming,
     session_log,
 )
 from .agent import (
@@ -36,6 +38,7 @@ from .handlers_commands import (  # noqa: F401
     on_models,
     on_restart,
     on_status,
+    on_streaming,
     on_tasks,
     on_update,
 )
@@ -152,11 +155,61 @@ async def _send_error(message, placeholder, error_msg: str) -> None:
         await message.reply_text(error_msg)
 
 
+_DRAFT_INTERVAL = 0.8  # minimum seconds between draft updates
+_DRAFT_ID = 1  # constant draft_id; same ID = animated updates
+
+
+async def _run_agent_and_reply_streaming(
+    bot, message, chat_id: str, agent_msg: str,
+    *, context_warn: bool = False,
+) -> None:
+    """Run agent with streaming drafts via sendMessageDraft."""
+    accumulated = ""
+    last_draft_time = 0.0
+
+    try:
+        async for event_type, data in agent_run_streaming(chat_id=chat_id, user_message=agent_msg):
+            if event_type == "text_delta":
+                accumulated += data
+                now = asyncio.get_event_loop().time()
+                if (now - last_draft_time) >= _DRAFT_INTERVAL and accumulated.strip():
+                    draft_text = accumulated[:MAX_TG_MSG]
+                    try:
+                        await bot.send_message_draft(
+                            chat_id=int(chat_id),
+                            draft_id=_DRAFT_ID,
+                            text=draft_text,
+                        )
+                        last_draft_time = now
+                    except Exception:
+                        logger.debug("send_message_draft failed", exc_info=True)
+            elif event_type == "done":
+                reply = data
+                if not reply or _is_tool_noise(reply):
+                    return
+                if context_warn:
+                    _used, fill = _context_fill(chat_id)
+                    if fill >= CONTEXT_WARN_THRESHOLD:
+                        reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
+                await _send_reply(bot, message, chat_id, reply, placeholder=None)
+    except Exception as e:
+        logger.exception("Streaming error: %s", e)
+        if message:
+            await message.reply_text(_classify_error(e))
+
+
 async def _run_agent_and_reply(
     bot, message, chat_id: str, agent_msg: str,
     *, use_placeholder: bool = True, context_warn: bool = False,
 ) -> None:
     """Run agent and send reply. Shared by on_message, on_reaction, _handle_upload."""
+    # Use streaming for interactive sessions when enabled
+    if use_placeholder and not chat_id.startswith("cron:") and get_streaming():
+        await _run_agent_and_reply_streaming(
+            bot, message, chat_id, agent_msg, context_warn=context_warn,
+        )
+        return
+
     placeholder = None
     try:
         if use_placeholder:
