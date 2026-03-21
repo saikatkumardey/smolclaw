@@ -287,15 +287,15 @@ async def _ensure_session(
 
 
 async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
-    client = _sessions[chat_id].client
-    await client.query(timestamped_message)
+    session = _sessions[chat_id]
+    await session.client.query(timestamped_message)
     parts: list[str] = []
     tool_names: list[str] = []
-    async for msg in client.receive_response():
+    async for msg in session.client.receive_response():
         if isinstance(msg, AssistantMessage):
             _collect_assistant_parts(msg, parts, tool_names)
         elif isinstance(msg, ResultMessage):
-            _sessions[chat_id].last_result = msg
+            session.last_result = msg
             _log_result(chat_id, msg)
 
     if parts:
@@ -326,11 +326,11 @@ def _extract_stream_delta(msg: StreamEvent) -> str | None:
 
 
 async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
-    client = _sessions[chat_id].client
-    await client.query(timestamped_message)
+    session = _sessions[chat_id]
+    await session.client.query(timestamped_message)
     parts: list[str] = []
     tool_names: list[str] = []
-    async for msg in client.receive_response():
+    async for msg in session.client.receive_response():
         if isinstance(msg, StreamEvent):
             text = _extract_stream_delta(msg)
             if text:
@@ -338,7 +338,7 @@ async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
         elif isinstance(msg, AssistantMessage):
             _collect_assistant_parts(msg, parts, tool_names)
         elif isinstance(msg, ResultMessage):
-            _sessions[chat_id].last_result = msg
+            session.last_result = msg
             _log_result(chat_id, msg)
 
     if parts:
