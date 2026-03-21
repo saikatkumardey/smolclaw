@@ -1,4 +1,3 @@
-"""Runtime metadata backed by ~/.smolclaw/session_state.json."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,8 +10,6 @@ _ZERO_TOKENS = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "
 
 
 class SessionState:
-    """Tracks per-session and daily token usage metrics."""
-
     def __init__(self, data: dict | None = None) -> None:
         self._data = data or {
             "version": 1,
@@ -20,17 +17,14 @@ class SessionState:
             "sessions": {},
             "usage_today": {"date": None, **_ZERO_TOKENS},
         }
-        # Ensure required keys exist
         self._data.setdefault("version", 1)
         self._data.setdefault("sessions", {})
         self._data.setdefault("usage_today", {"date": None, **_ZERO_TOKENS})
 
     def record_turn(self, chat_id: str, result: ResultMessage) -> None:
-        """Record token usage from an agent turn and persist to disk."""
         now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
 
-        # Extract token counts from result
         usage = result.usage or {}
         input_tokens = usage.get("input_tokens", 0)
         output_tokens = usage.get("output_tokens", 0)
@@ -39,7 +33,6 @@ class SessionState:
 
         turns = result.num_turns or 1
 
-        # Update per-session entry
         sess = self._data["sessions"].setdefault(chat_id, {
             "last_active": None, **_ZERO_TOKENS,
         })
@@ -50,7 +43,6 @@ class SessionState:
         sess["cache_write_tokens"] += cache_write
         sess["turns"] += turns
 
-        # Daily rollover
         usage_today = self._data["usage_today"]
         if usage_today.get("date") != today:
             usage_today.update(date=today, **_ZERO_TOKENS)
@@ -65,11 +57,9 @@ class SessionState:
         self._save()
 
     def get_session(self, chat_id: str) -> dict:
-        """Return usage data for a specific chat session."""
         return dict(self._data["sessions"].get(chat_id, {}))
 
     def get_usage_today(self) -> dict:
-        """Return aggregated token usage for the current UTC day."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         usage = self._data["usage_today"]
         if usage.get("date") != today:
@@ -77,7 +67,6 @@ class SessionState:
         return dict(usage)
 
     def to_dict(self) -> dict:
-        """Return the full state as a plain dictionary."""
         return dict(self._data)
 
     def _save(self) -> None:
@@ -85,6 +74,5 @@ class SessionState:
 
     @classmethod
     def load(cls) -> SessionState:
-        """Load session state from disk, or create a fresh instance."""
         data = workspace.read_json(workspace.SESSION_STATE)
         return cls(data if data else None)

@@ -1,8 +1,3 @@
-"""Headless browser manager using Playwright. Lazy singleton, one context per chat_id.
-
-Prefers Lightpanda (lightweight, designed for AI) over Chromium when available.
-Lightpanda is connected via CDP; Chromium is launched directly by Playwright.
-"""
 from __future__ import annotations
 
 import asyncio
@@ -17,16 +12,12 @@ from . import workspace
 
 SCREENSHOTS_DIR = workspace.HOME / "screenshots"
 
-# Close idle browser contexts after this many seconds
-_IDLE_TIMEOUT = 600  # 10 minutes
-
-# Lightpanda CDP defaults
+_IDLE_TIMEOUT = 600
 _LP_HOST = "127.0.0.1"
 _LP_PORT = 9222
 
 
 class BrowserManager:
-    """Lazy singleton managing Playwright browser contexts per chat session."""
 
     _instance: BrowserManager | None = None
 
@@ -42,13 +33,11 @@ class BrowserManager:
 
     @classmethod
     def get(cls) -> BrowserManager:
-        """Return the singleton BrowserManager instance, creating it if needed."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     async def _start_lightpanda(self) -> bool:
-        """Try to start Lightpanda and connect via CDP. Returns True on success."""
         lp_bin = shutil.which("lightpanda")
         if not lp_bin:
             return False
@@ -93,16 +82,13 @@ class BrowserManager:
             return False
 
     async def _ensure_browser(self):
-        """Lazily launch the browser. Tries Lightpanda first, falls back to Chromium."""
         if self._browser is not None:
             return
 
-        # Try Lightpanda first
         if await self._start_lightpanda():
             SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
             return
 
-        # Fall back to Chromium
         from playwright.async_api import async_playwright
 
         self._playwright = await async_playwright().start()
@@ -116,13 +102,11 @@ class BrowserManager:
 
     @property
     def backend(self) -> str:
-        """Return which browser backend is in use."""
         if self._browser is None:
             return "none"
         return "lightpanda" if self._using_lightpanda else "chromium"
 
     async def get_page(self, chat_id: str):
-        """Get or create a Page for this chat_id."""
         async with self._lock:
             await self._ensure_browser()
 
@@ -130,7 +114,6 @@ class BrowserManager:
                 self._last_used[chat_id] = time.monotonic()
                 return self._pages[chat_id]
 
-            # Lightpanda doesn't support all Chromium context options (e.g. user_agent)
             if self._using_lightpanda:
                 context = await self._browser.new_context()
             else:
@@ -148,7 +131,6 @@ class BrowserManager:
             return page
 
     async def close_session(self, chat_id: str) -> None:
-        """Close browser context for a chat_id."""
         async with self._lock:
             await self._close_session_unlocked(chat_id)
 
@@ -162,7 +144,6 @@ class BrowserManager:
                 logger.debug("browser context close failed", exc_info=True)
 
     async def close_all(self) -> None:
-        """Close all contexts, the browser, and Lightpanda subprocess if running."""
         async with self._lock:
             for chat_id in list(self._contexts.keys()):
                 await self._close_session_unlocked(chat_id)
@@ -183,7 +164,6 @@ class BrowserManager:
                 self._lp_process = None
 
     async def cleanup_idle(self) -> None:
-        """Close contexts that have been idle for too long."""
         async with self._lock:
             now = time.monotonic()
             stale = [
@@ -195,20 +175,16 @@ class BrowserManager:
                 await self._close_session_unlocked(cid)
 
     async def navigate(self, chat_id: str, url: str, timeout_ms: int = 30000) -> dict:
-        """Navigate to URL, return title + text content."""
         page = await self.get_page(chat_id)
         await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-        # Wait a bit for JS to render
         await page.wait_for_timeout(1000)
         title = await page.title()
         url_final = page.url
-        # Extract text, truncated
         text = await page.inner_text("body")
         text = text.strip()[:4000]
         return {"title": title, "url": url_final, "text": text}
 
     async def screenshot(self, chat_id: str) -> str:
-        """Take a screenshot, return the file path."""
         page = await self.get_page(chat_id)
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = SCREENSHOTS_DIR / f"{chat_id}_{ts}.png"
@@ -216,20 +192,17 @@ class BrowserManager:
         return str(path)
 
     async def click(self, chat_id: str, selector: str, timeout_ms: int = 5000) -> str:
-        """Click an element by CSS selector."""
         page = await self.get_page(chat_id)
         await page.click(selector, timeout=timeout_ms)
         await page.wait_for_timeout(500)
         return f"Clicked '{selector}'"
 
     async def type_text(self, chat_id: str, selector: str, text: str, timeout_ms: int = 5000) -> str:
-        """Type text into a form field."""
         page = await self.get_page(chat_id)
         await page.fill(selector, text, timeout=timeout_ms)
         return f"Typed into '{selector}'"
 
     async def evaluate(self, chat_id: str, js: str) -> str:
-        """Execute JavaScript on the page and return the result."""
         page = await self.get_page(chat_id)
         result = await page.evaluate(js)
         return str(result)[:4000] if result is not None else "undefined"

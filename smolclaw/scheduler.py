@@ -1,4 +1,3 @@
-"""APScheduler + crons.yaml."""
 from __future__ import annotations
 
 import asyncio
@@ -15,8 +14,6 @@ from . import workspace
 from .auth import default_chat_id
 from .tools import TelegramSender
 
-# Skip the `claude -v` subprocess the SDK spawns before every connect().
-# Cron jobs run frequently and the version doesn't change between runs.
 os.environ.setdefault("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
 
 _telegram = TelegramSender()
@@ -24,17 +21,15 @@ _telegram = TelegramSender()
 SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 
 
-_CRON_TIMEOUT_SECONDS = 300  # 5 minutes max per cron job
-_SUBCONSCIOUS_TIMEOUT_SECONDS = 600  # 10 minutes — subprocess boot + MCP init + multi-turn tool loop
+_CRON_TIMEOUT_SECONDS = 300
+_SUBCONSCIOUS_TIMEOUT_SECONDS = 600
 
-# Auth failure tracking: consecutive auth errors trigger an alert
 _auth_fail_count = 0
-_AUTH_ALERT_THRESHOLD = 3  # alert after 3 consecutive auth failures
+_AUTH_ALERT_THRESHOLD = 3
 _auth_alert_sent = False
 
 
 def _run_agent_in_thread(job_id: str, prompt: str, timeout: int) -> tuple[str | None, Exception | None]:
-    """Run agent in a separate thread with timeout. Returns (result, exception)."""
     from .agent import run
 
     result_holder: list[str] = []
@@ -58,23 +53,20 @@ def _run_agent_in_thread(job_id: str, prompt: str, timeout: int) -> tuple[str | 
 
 
 def _should_suppress_result(job_id: str, result: str) -> bool:
-    """Return True if this cron result should not be delivered to the user."""
     if job_id == "subconscious" and SUBCONSCIOUS_OK in result:
         return True
     return result == "(no response)"
 
 
 def _is_auth_error(exc: Exception) -> bool:
-    """Return True if the exception looks like an OAuth/auth failure."""
     exc_str = str(exc).lower()
     return "401" in exc_str or "authentication" in exc_str or "oauth" in exc_str or ("token" in exc_str and "expired" in exc_str)
 
 
-_AUTH_REMIND_INTERVAL = 10  # re-alert every N failures after threshold
+_AUTH_REMIND_INTERVAL = 10
 
 
 def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
-    """Track consecutive auth failures and send an alert after threshold."""
     global _auth_fail_count, _auth_alert_sent
     _auth_fail_count += 1
     if not deliver_to:
@@ -98,7 +90,6 @@ def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
 
 
 def _reset_auth_tracking() -> None:
-    """Reset auth failure counters after a successful run."""
     global _auth_fail_count, _auth_alert_sent
     _auth_fail_count = 0
     _auth_alert_sent = False
@@ -134,7 +125,6 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = No
 
 
 def _run_subconscious() -> None:
-    """Run a subconscious reflection cycle."""
     from .config import Config
     cfg = Config.load()
     if not cfg.get("subconscious_enabled", True):
@@ -144,7 +134,6 @@ def _run_subconscious() -> None:
     from . import subconscious
     threads = subconscious.load_threads()
 
-    # Read tail of recent session logs
     sessions_dir = workspace.HOME / "sessions"
     recent_logs = ""
     if sessions_dir.exists():
@@ -171,7 +160,6 @@ def _run_subconscious() -> None:
 
 
 def _cleanup_stale_files() -> None:
-    """Delete screenshots and uploads older than 7 days."""
     import time
     cutoff = time.time() - 7 * 86400
     for dirname in ("screenshots", "uploads"):
@@ -187,11 +175,9 @@ def _cleanup_stale_files() -> None:
 
 
 def _cleanup_idle_browsers() -> None:
-    """Close browser contexts that have been idle for too long."""
     try:
         from .browser import BrowserManager
         mgr = BrowserManager.get()
-        # Only run if browser has been used (avoid importing Playwright needlessly)
         if mgr._contexts:
             asyncio.run(mgr.cleanup_idle())
     except Exception as e:
@@ -199,7 +185,6 @@ def _cleanup_idle_browsers() -> None:
 
 
 def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
-    """Add built-in periodic jobs (cleanup, subconscious)."""
     scheduler.add_job(
         _cleanup_idle_browsers,
         IntervalTrigger(minutes=5),
@@ -227,7 +212,6 @@ def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
 
 
 def _should_skip_cron_job(job: dict) -> bool:
-    """Return True if a cron job entry should be skipped."""
     if job.get("disabled"):
         logger.info("Skipping disabled job: {}", job.get("id", "?"))
         return True
@@ -239,7 +223,6 @@ def _should_skip_cron_job(job: dict) -> bool:
 
 
 def _schedule_cron_job(scheduler: BackgroundScheduler, job: dict) -> None:
-    """Schedule a single cron job from crons.yaml."""
     deliver_to = job.get("deliver_to") or default_chat_id()
     job_timeout = int(job.get("timeout", _CRON_TIMEOUT_SECONDS))
     try:

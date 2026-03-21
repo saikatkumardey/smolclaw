@@ -1,4 +1,3 @@
-"""Subconscious — background reflection loop thread management."""
 from __future__ import annotations
 
 import os
@@ -19,10 +18,6 @@ def _now() -> datetime:
 
 
 def load_threads() -> list[dict]:
-    """Read subconscious.yaml and return open threads, auto-expiring stale ones.
-
-    Writes back pruned list when expired threads are removed.
-    """
     try:
         data = yaml.safe_load(workspace.SUBCONSCIOUS.read_text()) or {}
     except (FileNotFoundError, yaml.YAMLError):
@@ -46,7 +41,6 @@ def load_threads() -> list[dict]:
                 pass  # keep if expires is unparseable
         active.append(t)
 
-    # Prune expired threads from disk
     if len(active) != len(threads):
         save_threads(active)
 
@@ -54,7 +48,6 @@ def load_threads() -> list[dict]:
 
 
 def save_threads(threads: list[dict]) -> None:
-    """Atomically write threads back to subconscious.yaml."""
     path = workspace.SUBCONSCIOUS
     content = yaml.dump({"threads": threads}, default_flow_style=False)
     fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=path.parent)
@@ -68,7 +61,6 @@ def save_threads(threads: list[dict]) -> None:
 
 
 def add_thread(thread_data: dict) -> str:
-    """Validate and append a thread. Returns the thread id. Raises on error."""
     missing = _REQUIRED_FIELDS - set(thread_data.keys())
     if missing:
         raise ValueError(f"Missing required fields: {missing}")
@@ -76,7 +68,6 @@ def add_thread(thread_data: dict) -> str:
         raise ValueError(f"Invalid priority: {thread_data['priority']!r}. Must be one of {_VALID_PRIORITIES}")
 
     threads = load_threads()
-    # Deduplicate by id first, so updating an existing thread doesn't hit the cap
     threads = [t for t in threads if t.get("id") != thread_data["id"]]
     if len(threads) >= _MAX_THREADS:
         raise ValueError(f"Thread cap reached ({_MAX_THREADS}). Resolve some threads first.")
@@ -86,7 +77,6 @@ def add_thread(thread_data: dict) -> str:
 
 
 def resolve_thread(thread_id: str) -> bool:
-    """Remove a thread by id. Returns True if found and removed."""
     threads = load_threads()
     new_threads = [t for t in threads if t.get("id") != thread_id]
     if len(new_threads) == len(threads):
@@ -96,7 +86,6 @@ def resolve_thread(thread_id: str) -> bool:
 
 
 def build_prompt(threads: list[dict], recent_logs: str, memory: str) -> str:
-    """Construct the full subconscious prompt from template + context."""
     template = workspace.read_template("SUBCONSCIOUS.md")
 
     if threads:

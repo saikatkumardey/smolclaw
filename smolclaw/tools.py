@@ -1,4 +1,3 @@
-"""Minimal tools module — shared Telegram helper + TelegramSender for scheduler use."""
 from __future__ import annotations
 
 import os
@@ -12,11 +11,6 @@ MAX_TG_MSG = 4000
 
 
 def _send_telegram(chat_id: str, message: str) -> str:
-    """Send a Telegram message. Returns 'Sent. [message_id=N]' or an error string.
-
-    Uses httpx (sync) instead of requests so the function is safe to call via
-    asyncio.to_thread() from async callers without pulling in two HTTP stacks.
-    """
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         chunks = [message[i:i + MAX_TG_MSG] for i in range(0, len(message), MAX_TG_MSG)]
@@ -28,7 +22,6 @@ def _send_telegram(chat_id: str, message: str) -> str:
                     json={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"},
                 )
                 if not r.is_success:
-                    # Retry without Markdown if parse fails
                     r = client.post(
                         f"https://api.telegram.org/bot{token}/sendMessage",
                         json={"chat_id": chat_id, "text": chunk},
@@ -38,7 +31,7 @@ def _send_telegram(chat_id: str, message: str) -> str:
                 try:
                     last_message_id = r.json().get("result", {}).get("message_id")
                 except (ValueError, KeyError):
-                    pass  # response may not contain message_id
+                    pass
         if last_message_id:
             return f"Sent. [message_id={last_message_id}]"
         return "Sent."
@@ -47,7 +40,6 @@ def _send_telegram(chat_id: str, message: str) -> str:
 
 
 def _edit_telegram(chat_id: str, message_id: int, message: str) -> str:
-    """Edit an existing Telegram message. Returns 'Edited.' or an error string."""
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         text = message[:MAX_TG_MSG]
@@ -62,7 +54,6 @@ def _edit_telegram(chat_id: str, message_id: int, message: str) -> str:
                 },
             )
             if not r.is_success:
-                # Retry without Markdown
                 r = client.post(
                     f"https://api.telegram.org/bot{token}/editMessageText",
                     json={
@@ -79,11 +70,6 @@ def _edit_telegram(chat_id: str, message_id: int, message: str) -> str:
 
 
 def _send_telegram_file(chat_id: str, file_path: str) -> str:
-    """Send a file to a Telegram chat via sendDocument. Returns 'Sent.' or an error string.
-
-    Uses httpx (sync) instead of requests so the function is safe to call via
-    asyncio.to_thread() from async callers without pulling in two HTTP stacks.
-    """
     try:
         path = Path(file_path).resolve()
         try:
@@ -105,7 +91,6 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
 
 
 def _send_telegram_voice(chat_id: str, audio_path: str, caption: str = "") -> str:
-    """Send a voice message (OGG/Opus) to a Telegram chat. Returns 'Sent.' or an error string."""
     try:
         path = Path(audio_path).resolve()
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -126,17 +111,14 @@ def _send_telegram_voice(chat_id: str, audio_path: str, caption: str = "") -> st
 
 
 def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural") -> str:
-    """Convert text to OGG voice file using edge-tts. Returns output path or error."""
     import subprocess
     import tempfile
 
     mp3_path = None
     try:
-        # edge-tts outputs MP3; convert to OGG/Opus for Telegram voice messages
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
             mp3_path = tmp.name
 
-        # Use edge-tts CLI (simpler than async API in sync context)
         result = subprocess.run(
             ["edge-tts", "--voice", voice, "--text", text, "--write-media", mp3_path],
             capture_output=True, text=True, timeout=60,
@@ -144,7 +126,6 @@ def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural")
         if result.returncode != 0:
             return f"TTS failed: {result.stderr[:200]}"
 
-        # Convert MP3 to OGG/Opus using ffmpeg
         result = subprocess.run(
             ["ffmpeg", "-y", "-i", mp3_path, "-c:a", "libopus", "-b:a", "48k", output_path],
             capture_output=True, text=True, timeout=30,
@@ -161,7 +142,6 @@ def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural")
 
 
 def _set_reaction(chat_id: str, message_id: int, emoji: str) -> str:
-    """Set a reaction emoji on a Telegram message. Returns 'Done.' or error."""
     try:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         with httpx.Client(timeout=10) as client:
@@ -179,8 +159,5 @@ def _set_reaction(chat_id: str, message_id: int, emoji: str) -> str:
 
 
 class TelegramSender:
-    """Send Telegram messages. Used by scheduler for cron job delivery."""
-
     def send(self, chat_id: str, message: str) -> str:
-        """Send a message to the given Telegram chat."""
         return _send_telegram(chat_id, message)

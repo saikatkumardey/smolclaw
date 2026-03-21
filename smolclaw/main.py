@@ -1,4 +1,3 @@
-"""CLI entrypoint. smolclaw setup | smolclaw start"""
 from __future__ import annotations
 
 import os
@@ -14,10 +13,6 @@ from dotenv import load_dotenv
 
 app = typer.Typer(name="smolclaw", help="Your personal AI agent.", add_completion=False)
 
-
-# ---------------------------------------------------------------------------
-# --version callback
-# ---------------------------------------------------------------------------
 
 def version_callback(value: bool) -> None:
     if value:
@@ -40,10 +35,6 @@ def main_callback(
     pass
 
 
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
-
 @app.command()
 def setup() -> None:
     """Interactive setup wizard. Run this first."""
@@ -52,7 +43,6 @@ def setup() -> None:
 
 
 def _setup_token_prompt_choice(console):
-    """Show auth panel and prompt user for authentication method choice."""
     import questionary
     from rich.panel import Panel
 
@@ -89,7 +79,6 @@ def _setup_token_prompt_choice(console):
 
 
 def _setup_token_api_key(console, env, env_path):
-    """Handle API key authentication flow."""
     import getpass
 
     import questionary
@@ -123,7 +112,6 @@ def _setup_token_api_key(console, env, env_path):
 
 
 def _setup_token_login(console):
-    """Handle Claude CLI login flow."""
     import subprocess
     console.print()
     console.print("  [dim]Opening browser for Claude.ai login…[/dim]\n")
@@ -188,7 +176,6 @@ def doctor() -> None:
 
 
 def _preflight_checks() -> bool:
-    """Check required config before starting the bot. Returns False and prints error on failure."""
     from . import workspace
     env_path = workspace.HOME / ".env"
     if not env_path.exists():
@@ -262,7 +249,6 @@ def chat() -> None:
 
 
 def _start_daemon() -> None:
-    """Fork a background daemon process and return."""
     from . import workspace
     from .daemon import is_running, write_pid
 
@@ -284,7 +270,6 @@ def _start_daemon() -> None:
 
 
 def _ensure_path() -> None:
-    """Ensure user-local bin dirs are in PATH for systemd environments."""
     _user_bin_dirs = [
         os.path.expanduser("~/.npm-global/bin"),
         os.path.expanduser("~/.local/bin"),
@@ -296,7 +281,6 @@ def _ensure_path() -> None:
 
 
 def _setup_logging() -> None:
-    """Configure loguru logging for foreground mode."""
     from loguru import logger
 
     from . import workspace
@@ -313,7 +297,6 @@ def _setup_logging() -> None:
 
 
 def _register_handlers(bot) -> list:
-    """Register all Telegram handlers and return the command list."""
     from telegram.ext import (
         CallbackQueryHandler,
         CommandHandler,
@@ -358,7 +341,6 @@ def _register_handlers(bot) -> list:
 
 
 def _handle_bot_error(e: Exception) -> None:
-    """Print a user-friendly error message for bot startup failures."""
     err = str(e).lower()
     if "unauthorized" in err or "token" in err:
         typer.echo("Bot token rejected by Telegram. Check TELEGRAM_BOT_TOKEN in your .env.")
@@ -418,7 +400,6 @@ def start(
 def stop() -> None:
     """Stop the running SmolClaw daemon."""
     import subprocess
-    # If managed by systemd, delegate to systemctl to avoid Restart=always loop
     result = subprocess.run(
         ["systemctl", "--user", "is-active", "smolclaw.service"],
         capture_output=True, text=True,
@@ -441,7 +422,6 @@ def stop() -> None:
 def restart() -> None:
     """Restart the SmolClaw daemon."""
     import subprocess
-    # If managed by systemd, delegate to systemctl to avoid duplicate instances
     result = subprocess.run(
         ["systemctl", "--user", "is-active", "smolclaw.service"],
         capture_output=True, text=True,

@@ -1,4 +1,3 @@
-"""Workspace health diagnostics. Run: smolclaw doctor"""
 from __future__ import annotations
 
 import importlib.util
@@ -44,10 +43,6 @@ class CheckResult:
     suggestion: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _human_size(nbytes: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
@@ -58,7 +53,6 @@ def _human_size(nbytes: int) -> str:
 
 
 def _dir_size(path: Path) -> tuple[int, int]:
-    """Return (total_bytes, file_count) for a directory."""
     total = 0
     count = 0
     if not path.exists():
@@ -70,13 +64,8 @@ def _dir_size(path: Path) -> tuple[int, int]:
     return total, count
 
 
-# ---------------------------------------------------------------------------
-# Workspace checks
-# ---------------------------------------------------------------------------
-
 
 def _check_subdirs(home: Path) -> list[CheckResult]:
-    """Check that all required subdirectories exist."""
     results: list[CheckResult] = []
     for name in _REQUIRED_SUBDIRS:
         d = home / name
@@ -88,7 +77,6 @@ def _check_subdirs(home: Path) -> list[CheckResult]:
 
 
 def _check_core_files(home: Path) -> list[CheckResult]:
-    """Check that core files exist and are non-empty."""
     results: list[CheckResult] = []
     for name in _CORE_FILES:
         f = home / name
@@ -102,7 +90,6 @@ def _check_core_files(home: Path) -> list[CheckResult]:
 
 
 def _check_crons_yaml(home: Path) -> list[CheckResult]:
-    """Check that crons.yaml is valid YAML."""
     crons = home / "crons.yaml"
     if not (crons.exists() and crons.stat().st_size > 0):
         return []
@@ -114,7 +101,6 @@ def _check_crons_yaml(home: Path) -> list[CheckResult]:
 
 
 def _check_env_file(home: Path) -> list[CheckResult]:
-    """Check .env exists and has required vars."""
     results: list[CheckResult] = []
     env_path = home / ".env"
     if not env_path.exists():
@@ -132,7 +118,6 @@ def _check_env_file(home: Path) -> list[CheckResult]:
 
 
 def _check_json_config() -> list[CheckResult]:
-    """Check smolclaw.json and session_state.json validity."""
     results: list[CheckResult] = []
     config_path = workspace.CONFIG
     if config_path.exists():
@@ -171,13 +156,8 @@ def _check_workspace() -> list[CheckResult]:
     return results
 
 
-# ---------------------------------------------------------------------------
-# Runtime checks
-# ---------------------------------------------------------------------------
-
 
 def _check_telegram_token(env: dict) -> list[CheckResult]:
-    """Verify Telegram bot token via API call."""
     token = env.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         return [CheckResult(Status.WARN, "No Telegram bot token — skipping token check", "Run: smolclaw setup")]
@@ -192,7 +172,6 @@ def _check_telegram_token(env: dict) -> list[CheckResult]:
 
 
 def _check_claude_auth(env: dict) -> CheckResult:
-    """Check for Claude API key or CLI auth."""
     api_key = env.get("ANTHROPIC_API_KEY", "").strip() or os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if api_key:
         return CheckResult(Status.OK, "ANTHROPIC_API_KEY is set")
@@ -202,7 +181,6 @@ def _check_claude_auth(env: dict) -> CheckResult:
 
 
 def _resolve_model(env: dict) -> str:
-    """Resolve the active model from env, config, or default."""
     model = env.get("SMOLCLAW_MODEL", "").strip() or os.environ.get("SMOLCLAW_MODEL", "").strip()
     if not model:
         config_path = workspace.CONFIG
@@ -215,7 +193,6 @@ def _resolve_model(env: dict) -> str:
 
 
 def _check_model(env: dict) -> CheckResult:
-    """Check that the configured model is recognized."""
     model = _resolve_model(env)
     if model in _KNOWN_MODELS:
         return CheckResult(Status.OK, f"Model: {model}")
@@ -223,7 +200,6 @@ def _check_model(env: dict) -> CheckResult:
 
 
 def _check_single_tool(path: Path) -> CheckResult:
-    """Validate a single custom tool file."""
     try:
         spec = importlib.util.spec_from_file_location(path.stem, path)
         mod = importlib.util.module_from_spec(spec)
@@ -239,7 +215,6 @@ def _check_single_tool(path: Path) -> CheckResult:
 
 
 def _check_custom_tools() -> list[CheckResult]:
-    """Validate all custom tools in the tools directory."""
     tools_dir = workspace.TOOLS_DIR
     if not tools_dir.is_dir():
         return []
@@ -250,7 +225,6 @@ def _check_custom_tools() -> list[CheckResult]:
 
 
 def _check_browser_backend() -> list[CheckResult]:
-    """Check availability of Lightpanda and/or Playwright Chromium."""
     results: list[CheckResult] = []
     lp_bin = shutil.which("lightpanda")
     if lp_bin:
@@ -273,7 +247,6 @@ def _check_browser_backend() -> list[CheckResult]:
 
 
 def _check_tts_deps() -> CheckResult:
-    """Check for edge-tts and ffmpeg availability."""
     edge_tts = shutil.which("edge-tts")
     ffmpeg = shutil.which("ffmpeg")
     if edge_tts and ffmpeg:
@@ -283,7 +256,6 @@ def _check_tts_deps() -> CheckResult:
 
 
 def _check_cron_expressions() -> list[CheckResult]:
-    """Validate cron expressions in crons.yaml."""
     crons_path = workspace.CRONS
     if not (crons_path.exists() and crons_path.stat().st_size > 0):
         return []
@@ -320,10 +292,6 @@ def _check_runtime() -> list[CheckResult]:
     results.extend(_check_cron_expressions())
     return results
 
-
-# ---------------------------------------------------------------------------
-# State checks
-# ---------------------------------------------------------------------------
 
 
 def _check_process() -> list[CheckResult]:
@@ -408,10 +376,6 @@ def _check_state() -> list[CheckResult]:
     return results
 
 
-# ---------------------------------------------------------------------------
-# Output
-# ---------------------------------------------------------------------------
-
 _ICONS = {
     Status.OK: "[bold green]✓[/bold green]",
     Status.WARN: "[bold yellow]![/bold yellow]",
@@ -420,7 +384,6 @@ _ICONS = {
 
 
 def _compute_score(ok: int, warn: int, fail: int, total: int) -> int:
-    """Compute a 0-100 health score. OK=full, WARN=half, FAIL=zero."""
     if total == 0:
         return 100
     points = ok * 1.0 + warn * 0.5
@@ -461,13 +424,8 @@ def _print_results(categories: dict[str, list[CheckResult]]) -> None:
     console.print()
 
 
-# ---------------------------------------------------------------------------
-# Entrypoint
-# ---------------------------------------------------------------------------
-
 
 def run() -> int:
-    """Run all checks and print results. Returns exit code (0=ok, 1=failures)."""
     categories: dict[str, list[CheckResult]] = {}
     categories["Workspace"] = _check_workspace()
     categories["Runtime"] = _check_runtime()

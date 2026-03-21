@@ -1,4 +1,3 @@
-"""Textual TUI for local interactive chat with the SmolClaw agent."""
 from __future__ import annotations
 
 import asyncio
@@ -15,9 +14,6 @@ from smolclaw.agent import run as agent_run
 from smolclaw.scheduler import setup_scheduler
 from smolclaw.tools import TelegramSender
 
-# ---------------------------------------------------------------------------
-# Tokyo Night palette
-# ---------------------------------------------------------------------------
 _BG = "#1a1b26"
 _PURPLE = "#bb9af7"
 _GREEN = "#9ece6a"
@@ -28,7 +24,6 @@ _DIM = "#565f89"
 
 CHAT_ID = "tui"
 
-# 8-bit dog mascot — 3-line pixel art per mood.
 _MASCOT = {
     "idle": (
         " [bold]▄▀▀▀▄[/]\n"
@@ -54,7 +49,6 @@ _MASCOT = {
 
 
 class Mascot(Static):
-    """Reactive 8-bit dog mascot that changes expression with app state."""
 
     DEFAULT_CSS = f"""
     Mascot {{
@@ -74,7 +68,6 @@ class Mascot(Static):
 
 
 class StatusBar(Horizontal):
-    """Top bar showing model name, connection status, and mascot."""
 
     DEFAULT_CSS = f"""
     StatusBar {{
@@ -94,10 +87,6 @@ class StatusBar(Horizontal):
 
 
 class MessageBubble(Static):
-    """A single chat message rendered as a bubble.
-
-    variant: "user" | "bot" | "cron" | "error" | "system"
-    """
 
     DEFAULT_CSS = f"""
     MessageBubble {{
@@ -141,7 +130,6 @@ class MessageBubble(Static):
 
 
 class UserRow(Horizontal):
-    """Right-aligned wrapper for user message bubbles."""
 
     DEFAULT_CSS = """
     UserRow {
@@ -153,11 +141,6 @@ class UserRow(Horizontal):
 
 
 class ChatView(ScrollableContainer):
-    """Scrollable container holding all message bubbles."""
-
-    # Prevent focus so clicks here don't steal focus from the Input widget.
-    # (ScrollableContainer defaults to can_focus=True, which causes space and
-    # arrow keys to be consumed by the chat area instead of the input box.)
     _inherit_bindings = False
 
     DEFAULT_CSS = f"""
@@ -170,7 +153,6 @@ class ChatView(ScrollableContainer):
 
 
 class SmolClawApp(App):
-    """Bubble-chat TUI for SmolClaw."""
 
     CSS = f"""
     Screen {{
@@ -206,40 +188,25 @@ class SmolClawApp(App):
         Binding("ctrl+z", "quit", "Quit"),
     ]
 
-    # ------------------------------------------------------------------
-    # Composition
-    # ------------------------------------------------------------------
-
     def compose(self) -> ComposeResult:
         yield StatusBar()
         yield ChatView(can_focus=False)
         yield LoadingIndicator()
         yield Input(placeholder="Message SmolClaw...")
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     async def on_mount(self) -> None:
         self._drain_task = None
         self._scheduler = None
         self._original_send = TelegramSender.send
-        # 1. Create queue bound to Textual's event loop
         self._cron_queue: asyncio.Queue[str] = asyncio.Queue()
-        # 2. Capture running loop (never use get_event_loop inside async)
         _loop = asyncio.get_running_loop()
-        # 3. Patch TelegramSender.send → enqueue to TUI instead of Telegram
         TelegramSender.send = lambda _self_s, cid, msg: _loop.call_soon_threadsafe(
             self._cron_queue.put_nowait, msg
         )
-        # 4. Start APScheduler (cron jobs will call patched send)
         self._scheduler = setup_scheduler()
         self._scheduler.start()
-        # 5. Drain cron queue into chat bubbles
         self._drain_task = asyncio.create_task(self._drain_cron_queue())
-        # Hide spinner until agent is running
         self.query_one(LoadingIndicator).display = False
-        # Focus input
         self.query_one(Input).focus()
 
     async def on_unmount(self) -> None:
@@ -250,10 +217,6 @@ class SmolClawApp(App):
             await asyncio.gather(self._drain_task, return_exceptions=True)
         if self._original_send is not None:
             TelegramSender.send = self._original_send
-
-    # ------------------------------------------------------------------
-    # User input
-    # ------------------------------------------------------------------
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         msg = event.value.strip()
@@ -275,10 +238,8 @@ class SmolClawApp(App):
         if event.worker.name != "_run_agent":
             return
         state = event.worker.state
-        # Only act on terminal states — ignore PENDING and RUNNING.
         if state not in (WorkerState.SUCCESS, WorkerState.ERROR, WorkerState.CANCELLED):
             return
-        # Restore UI
         mascot = self.query_one(Mascot)
         self.query_one(LoadingIndicator).display = False
         self.query_one(Input).disabled = False
@@ -293,10 +254,6 @@ class SmolClawApp(App):
         else:
             mascot.set_mood("happy")
 
-    # ------------------------------------------------------------------
-    # Cron drain
-    # ------------------------------------------------------------------
-
     async def _drain_cron_queue(self) -> None:
         try:
             while True:
@@ -305,20 +262,11 @@ class SmolClawApp(App):
         except asyncio.CancelledError:
             pass
 
-    # ------------------------------------------------------------------
-    # Keyboard actions
-    # ------------------------------------------------------------------
-
     async def action_reset_session(self) -> None:
         await self.query_one(ChatView).remove_children()
         await reset_session(CHAT_ID)
         await self._append_bubble("Session reset.", "system")
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    # Rows from the bottom within which auto-scroll kicks in.
     _SCROLL_THRESHOLD = 2
 
     async def _append_bubble(self, text: str, variant: str) -> None:
@@ -328,7 +276,6 @@ class SmolClawApp(App):
         self._maybe_scroll(chat_view)
 
     def _sync_append_bubble(self, text: str, variant: str) -> None:
-        """Non-async version for use with call_after_refresh."""
         chat_view = self.query_one(ChatView)
         chat_view.mount(MessageBubble(text, variant=variant))
         self._maybe_scroll(chat_view)

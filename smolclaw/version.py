@@ -1,4 +1,3 @@
-"""Shared version utilities — single source of truth for version checks and update summaries."""
 from __future__ import annotations
 
 import importlib.metadata
@@ -8,12 +7,11 @@ from pathlib import Path
 
 
 def local_version() -> str:
-    """Get installed smolclaw version, with fallbacks for uv tool installs."""
     try:
         return importlib.metadata.version("smolclaw")
     except Exception:
         pass
-    # Fallback: parse from uv tool list
+    # uv tool list fallback
     try:
         result = subprocess.run(["uv", "tool", "list"], capture_output=True, text=True, timeout=10)
         for line in result.stdout.splitlines():
@@ -23,7 +21,7 @@ def local_version() -> str:
                     return m.group(1)
     except Exception:
         pass
-    # Fallback: read pyproject.toml directly (works in dev)
+    # pyproject.toml fallback
     try:
         toml = Path(__file__).parent.parent / "pyproject.toml"
         if toml.exists():
@@ -36,7 +34,6 @@ def local_version() -> str:
 
 
 def check_remote_version(source: str) -> str | None:
-    """Check the latest version from GitHub pyproject.toml. Returns version string or None."""
     try:
         import requests
         repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
@@ -52,12 +49,11 @@ def check_remote_version(source: str) -> str | None:
             if m:
                 return m.group(1)
     except Exception:
-        pass  # network or HTTP error checking remote version
+        pass
     return None
 
 
 def _detect_new_version() -> str:
-    """Detect the newly installed smolclaw version via binary or uv tool list."""
     try:
         ver_result = subprocess.run(
             ["uv", "tool", "run", "smolclaw", "--", "--version"],

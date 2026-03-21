@@ -1,16 +1,13 @@
-"""Browser-related SDK tools, extracted from tools_sdk."""
 from __future__ import annotations
 
 from claude_agent_sdk import tool
 
 
 def _text(t: str) -> dict:
-    """Standard tool response wrapper."""
     return {"content": [{"type": "text", "text": t}]}
 
 
 async def _browser_call(method: str, *args) -> dict:
-    """Shared helper for simple browser tool calls."""
     from .browser import BrowserManager
     try:
         result = await getattr(BrowserManager.get(), method)(*args)

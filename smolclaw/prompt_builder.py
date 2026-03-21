@@ -1,4 +1,3 @@
-"""System prompt construction, extracted from agent.py."""
 from __future__ import annotations
 
 from . import workspace
@@ -49,7 +48,6 @@ def _workspace_context() -> str:
 
 
 def system_prompt_slim() -> str:
-    """Build a stripped-down system prompt for cron jobs."""
     parts = [_workspace_context()]
     if agent_content := workspace.read(workspace.AGENT):
         parts.append(f"=== AGENT.md ===\n{agent_content.strip()}")
@@ -59,7 +57,6 @@ def system_prompt_slim() -> str:
 
 
 def system_prompt_full() -> str:
-    """Build the full system prompt for interactive sessions."""
     parts = [_workspace_context()]
 
     user_content = ""
@@ -95,7 +92,6 @@ def system_prompt_full() -> str:
     if "Not set yet" in user_content:
         parts.append(_onboarding_block())
 
-    # Hard enforcement: never claim ignorance without checking logs first
     parts.append(
         "=== CRITICAL RULE ===\n"
         "NEVER say \"I don't have context\", \"I don't recall\", or \"what are you referring to\" "

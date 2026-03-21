@@ -1,4 +1,3 @@
-"""handlers.py — Telegram bot command and message handlers."""
 from __future__ import annotations
 
 import asyncio
@@ -15,15 +14,12 @@ from .agent import (
     get_streaming,
     interrupt_session,
     reset_session,
+    run as agent_run,
     run_streaming as agent_run_streaming,
     session_log,
 )
-from .agent import (
-    run as agent_run,
-)
 from .auth import require_allowed
 
-# Re-export all command handlers so existing imports from handlers still work
 from .handlers_commands import (  # noqa: F401
     CONTEXT_WARN_THRESHOLD,
     _context_fill,
@@ -47,13 +43,7 @@ from .tools import MAX_TG_MSG
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Message debounce — collect rapid-fire messages before processing
-# ---------------------------------------------------------------------------
-
-_DEBOUNCE_SECONDS = 1.5  # default; overridden by config debounce_seconds
-
-# Per-chat debounce state: {chat_id: {"messages": [...], "task": asyncio.Task}}
+_DEBOUNCE_SECONDS = 1.5
 _debounce_buffers: dict[str, dict] = {}
 
 
@@ -76,15 +66,15 @@ def _is_tool_noise(reply: str) -> bool:
     return reply == "(no response)" or reply.startswith("Done. (used:")
 
 
+_ERROR_MESSAGES = {
+    asyncio.TimeoutError: "Request timed out. Please try again.",
+    PermissionError: "Permission denied. Check the logs.",
+    ConnectionError: "Connection error. Check your network and try again.",
+}
+
+
 def _classify_error(e: Exception) -> str:
-    """Return a user-friendly error message based on exception type."""
-    if isinstance(e, asyncio.TimeoutError):
-        return "Request timed out. Please try again."
-    if isinstance(e, PermissionError):
-        return "Permission denied. Check the logs."
-    if isinstance(e, ConnectionError):
-        return "Connection error. Check your network and try again."
-    return "Something went wrong. Check the logs."
+    return _ERROR_MESSAGES.get(type(e), "Something went wrong. Check the logs.")
 
 
 class _TypingLoop:
@@ -439,14 +429,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 def _extract_reaction_emojis(added: list) -> list[str]:
-    """Extract emoji strings from a list of reaction objects."""
-    emojis = []
-    for r in added:
-        if hasattr(r, "emoji"):
-            emojis.append(r.emoji)
-        elif hasattr(r, "custom_emoji_id"):
-            emojis.append(f"(custom:{r.custom_emoji_id})")
-    return emojis
+    return [
+        r.emoji if hasattr(r, "emoji") else f"(custom:{r.custom_emoji_id})"
+        for r in added
+        if hasattr(r, "emoji") or hasattr(r, "custom_emoji_id")
+    ]
 
 
 @require_allowed
@@ -465,15 +452,8 @@ async def on_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await _run_agent_and_reply(context.bot, None, chat_id, f"[User reacted to a previous message with: {emoji_str}]", use_placeholder=False)
 
 
-async def _handle_upload(update: Update, context: ContextTypes.DEFAULT_TYPE, agent_msg: str) -> None:
-    """Shared handler for file/photo uploads: run agent and reply."""
-    chat_id = str(update.effective_chat.id)
-    await _run_agent_and_reply(context.bot, update.message, chat_id, agent_msg)
-
-
 @require_allowed
 async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle documents: download to uploads/, pass path to agent."""
     chat_id = str(update.effective_chat.id)
     doc = update.message.document
     caption = update.message.caption or ""
@@ -489,19 +469,18 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     mime = doc.mime_type or "application/octet-stream"
     agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent file '{safe_name}' ({mime}). Saved to: {dest}]\n\n{caption}"
-    await _handle_upload(update, context, agent_msg)
+    await _run_agent_and_reply(context.bot, update.message, chat_id, agent_msg)
 
 
 @require_allowed
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle photos: save to uploads/, pass path to agent for native vision."""
     chat_id = str(update.effective_chat.id)
     caption = update.message.caption or ""
     if not update.message.photo:
         await update.message.reply_text("No photo data received.")
         return
     try:
-        photo = update.message.photo[-1]  # highest resolution
+        photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
         dest = workspace.UPLOADS_DIR / f"{photo.file_unique_id}.jpg"
         await file.download_to_drive(str(dest))
@@ -510,4 +489,4 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(_classify_error(e))
         return
     agent_msg = f"[chat_id={chat_id} message_id={update.message.message_id}]\n[User sent a photo. Saved to: {dest}]\n\n{caption}"
-    await _handle_upload(update, context, agent_msg)
+    await _run_agent_and_reply(context.bot, update.message, chat_id, agent_msg)

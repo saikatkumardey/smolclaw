@@ -1,4 +1,3 @@
-"""claude-agent-sdk ClaudeSDKClient loop."""
 from __future__ import annotations
 
 import asyncio
@@ -35,21 +34,17 @@ from .session_state import SessionState
 from .tool_loader import load_custom_tools
 from .tools_sdk import CUSTOM_TOOLS
 
-# Auto-rotation: when context exceeds this fraction, build a handover and reset
 _AUTO_ROTATE_THRESHOLD = 0.70
 _CONTEXT_WINDOW_TOKENS = 1_000_000
 
-# Task registry: task_id -> {task, description, started_at, status}
 _task_registry: dict[str, dict] = {}
 
-# Available Claude models: (model_id, display_label)
 AVAILABLE_MODELS: list[tuple[str, str]] = [
     ("claude-opus-4-6",           "Opus 4.6 — Most capable"),
     ("claude-sonnet-4-6",         "Sonnet 4.6 — Balanced (default)"),
     ("claude-haiku-4-5-20251001", "Haiku 4.5 — Fastest"),
 ]
 
-# Available effort levels: (effort_id, display_label)
 AVAILABLE_EFFORTS: list[tuple[str, str]] = [
     ("low",    "Low — fast, minimal thinking (default)"),
     ("medium", "Medium — balanced thinking"),
@@ -63,10 +58,8 @@ def get_current_model() -> str:
 
 
 async def set_model(model_id: str) -> None:
-    """Persist the chosen model to smolclaw.json and reset all sessions."""
     cfg = Config.load()
     cfg.set("model", model_id)
-    # Keep env var in sync for scheduler and other env-var readers
     os.environ["SMOLCLAW_MODEL"] = model_id
     for chat_id in list(_sessions.keys()):
         await reset_session(chat_id)
@@ -77,7 +70,6 @@ def get_current_effort() -> str:
 
 
 async def set_effort(effort: str) -> None:
-    """Persist the chosen effort level to smolclaw.json and reset all sessions."""
     cfg = Config.load()
     cfg.set("effort", effort)
     for chat_id in list(_sessions.keys()):
@@ -89,7 +81,6 @@ def get_streaming() -> bool:
 
 
 async def set_streaming(enabled: bool) -> None:
-    """Persist streaming toggle. No session reset needed."""
     Config.load().set("streaming", enabled)
 
 
@@ -101,13 +92,11 @@ class _Session:
     handover_pending: bool = False
 
 
-# One session per chat_id, cached in memory for multi-turn
 _sessions: dict[str, _Session] = {}
 _session_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def _prune_stale_locks() -> None:
-    """Remove locks for chat_ids that have no active session."""
     stale = [cid for cid in _session_locks if cid not in _sessions]
     for cid in stale:
         lock = _session_locks[cid]
@@ -116,17 +105,14 @@ def _prune_stale_locks() -> None:
 
 
 async def reset_session(chat_id: str) -> None:
-    """Disconnect and remove the cached session for chat_id."""
     session = _sessions.pop(chat_id, None)
     if session:
-        # Save transport reference before disconnect — needed for fallback subprocess termination
-        # if disconnect() fails due to anyio cancel-scope task affinity errors.
         transport = getattr(session.client, '_transport', None)
         try:
             await session.client.disconnect()
         except Exception as e:
             logger.warning("Failed to disconnect session for {}: {}", chat_id, e)
-            # Fallback: directly terminate the underlying subprocess so it doesn't linger
+            # Fallback: terminate subprocess if disconnect fails (anyio cancel-scope issue)
             proc = getattr(transport, '_process', None) if transport is not None else None
             if proc is not None:
                 try:
@@ -134,7 +120,6 @@ async def reset_session(chat_id: str) -> None:
                     logger.info("Force-terminated subprocess for session {}", chat_id)
                 except Exception as kill_e:
                     logger.debug("Could not terminate subprocess for {}: {}", chat_id, kill_e)
-    # Always clean up browser context, even if disconnect failed
     try:
         from .browser import BrowserManager
         await BrowserManager.get().close_session(chat_id)
@@ -143,7 +128,6 @@ async def reset_session(chat_id: str) -> None:
 
 
 async def interrupt_session(chat_id: str) -> bool:
-    """Interrupt the active turn for chat_id. Returns True if signal was sent."""
     if session := _sessions.get(chat_id):
         try:
             await session.client.interrupt()
@@ -154,21 +138,17 @@ async def interrupt_session(chat_id: str) -> bool:
 
 
 def get_last_result(chat_id: str) -> ResultMessage | None:
-    """Return the ResultMessage from the most recent turn, if any."""
     if session := _sessions.get(chat_id):
         return session.last_result
     return None
 
 
-
-_TASK_EXPIRY_SECONDS = 3600  # prune completed tasks after 1 hour
-_TASK_STUCK_SECONDS = 7200  # prune stuck (still running) tasks after 2 hours
+_TASK_EXPIRY_SECONDS = 3600
+_TASK_STUCK_SECONDS = 7200
 
 
 def list_tasks() -> list[dict]:
-    """Return summary of all tracked background tasks, pruning stale ones."""
     now = time.time()
-    # Prune completed tasks older than 1 hour, and stuck tasks older than 2 hours
     stale = [
         tid for tid, info in _task_registry.items()
         if (info["task"].done() and (now - info["started_at"]) > _TASK_EXPIRY_SECONDS)
@@ -193,7 +173,6 @@ def list_tasks() -> list[dict]:
 
 
 def cancel_all_tasks(chat_id: str) -> int:
-    """Cancel all running background tasks for a chat. Returns count cancelled."""
     cancelled = 0
     to_remove = []
     for tid, info in _task_registry.items():
@@ -208,7 +187,6 @@ def cancel_all_tasks(chat_id: str) -> int:
 
 
 def session_log(chat_id: str, role: str, content: str | dict) -> None:
-    """Append a line to today's session log. JSONL, one file per day."""
     try:
         now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
@@ -225,10 +203,7 @@ def session_log(chat_id: str, role: str, content: str | dict) -> None:
     except Exception as e:
         logger.warning("session_log failed: %s", e)
 
-
-
 def _context_fill_from_result(result: ResultMessage | None) -> float:
-    """Return context fill fraction (0.0-1.0) from a ResultMessage."""
     if not result:
         return 0.0
     usage = result.usage or {}
@@ -238,15 +213,11 @@ def _context_fill_from_result(result: ResultMessage | None) -> float:
 
 
 def _make_spawn_task_tool(chat_id: str, cfg: Config):
-    """Build spawn_task with task registry and progress-capable sub-agents."""
-    import time
-
     from .tools import _send_telegram
 
     subagent_timeout = cfg.get("subagent_timeout")
     subagent_max_turns = cfg.get("subagent_max_turns")
 
-    # Build a minimal telegram_send tool for sub-agents so they can report progress
     @tool("telegram_send", "Send a Telegram message to report progress or results.", {"message": str})
     async def _subagent_telegram_send(args: dict) -> dict:
         await asyncio.to_thread(_send_telegram, chat_id, args["message"])
@@ -312,7 +283,6 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
 
 
 def _make_delegate_tool(chat_id: str, cfg: Config):
-    """Build a synchronous delegate tool that runs a sub-agent and returns results inline."""
     subagent_timeout = cfg.get("subagent_timeout")
     subagent_max_turns = cfg.get("subagent_max_turns")
 
@@ -347,7 +317,6 @@ def _make_delegate_tool(chat_id: str, cfg: Config):
         except Exception as e:
             parts.append(f"\n[delegate error: {e}]")
         result = "\n".join(parts) or "(no output)"
-        # Truncate to avoid blowing up main agent context
         if len(result) > 12000:
             result = result[:12000] + "\n\n[truncated — full output was longer]"
         return {"content": [{"type": "text", "text": result}]}
@@ -356,7 +325,6 @@ def _make_delegate_tool(chat_id: str, cfg: Config):
 
 
 def _select_tools_for_chat(chat_id: str, cfg: Config) -> list:
-    """Select the appropriate tool set based on chat_id type."""
     if chat_id.startswith("cron:subconscious"):
         from .tools_sdk import reflect, telegram_send, update_subconscious
         return [telegram_send, update_subconscious, reflect]
@@ -368,7 +336,6 @@ def _select_tools_for_chat(chat_id: str, cfg: Config) -> list:
 
 
 def _select_model(chat_id: str, cfg: Config) -> str:
-    """Select the appropriate model based on chat_id type."""
     model = cfg.get("model")
     if chat_id.startswith("cron:subconscious"):
         return cfg.get("subconscious_model") or model
@@ -378,14 +345,12 @@ def _select_model(chat_id: str, cfg: Config) -> str:
 
 
 def _select_max_turns(chat_id: str, cfg: Config) -> int:
-    """Select max turns based on chat_id type."""
     if chat_id.startswith("cron:subconscious"):
         return 3
     return cfg.get("max_turns")
 
 
 def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
-    """Build ClaudeAgentOptions with full tool set."""
     cfg = Config.load()
     is_cron = chat_id.startswith("cron:")
 
@@ -416,11 +381,9 @@ def _make_options(chat_id: str, dynamic_mcp_server=None) -> ClaudeAgentOptions:
 async def _ensure_session(
     chat_id: str, current_tool_names: frozenset[str], dynamic_mcp_server,
 ) -> None:
-    """Ensure a valid session exists for chat_id, creating one if needed."""
     existing = _sessions.get(chat_id)
 
-    # Cron jobs run in asyncio.run() (fresh event loop per call), so any
-    # cached session from a previous run has a dead transport.
+    # Cron jobs get a fresh event loop per call, so cached sessions have dead transports
     if existing is not None and chat_id.startswith("cron:"):
         _sessions.pop(chat_id, None)
         existing = None
@@ -442,7 +405,6 @@ async def _ensure_session(
 
 
 async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
-    """Execute one agent turn and return the reply text."""
     client = _sessions[chat_id].client
     await client.query(timestamped_message)
     parts: list[str] = []
@@ -466,12 +428,6 @@ async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
 
 
 async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
-    """Execute one agent turn, yielding (event_type, data) tuples.
-
-    Yields:
-        ("text_delta", str) -- incremental text chunk from streaming
-        ("done", str)       -- final full response text
-    """
     client = _sessions[chat_id].client
     await client.query(timestamped_message)
     parts: list[str] = []
@@ -506,10 +462,6 @@ async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
 
 
 async def run_streaming(chat_id: str, user_message: str):
-    """Run one turn, yielding (event_type, data) for streaming.
-
-    Same session management as run(). Final yield is always ("done", full_reply).
-    """
     dynamic_tools = load_custom_tools()
     current_tool_names = frozenset(t.name for t in dynamic_tools)
     dynamic_mcp_server = (
@@ -555,7 +507,6 @@ async def run_streaming(chat_id: str, user_message: str):
 
 
 def _log_result(chat_id: str, msg: ResultMessage) -> None:
-    """Log a ResultMessage and record usage stats."""
     usage = msg.usage or {}
     session_log(chat_id, "result", {
         "turns": msg.num_turns,
@@ -572,7 +523,6 @@ def _log_result(chat_id: str, msg: ResultMessage) -> None:
 
 
 async def _maybe_auto_rotate(chat_id: str) -> None:
-    """Auto-rotate session if context is filling up."""
     session = _sessions.get(chat_id)
     if not (session and session.last_result):
         return
@@ -586,7 +536,6 @@ async def _maybe_auto_rotate(chat_id: str) -> None:
 
 
 async def run(chat_id: str, user_message: str) -> str:
-    """Run one turn of conversation. Multi-turn via cached client per chat_id."""
     dynamic_tools = load_custom_tools()
     current_tool_names = frozenset(t.name for t in dynamic_tools)
     dynamic_mcp_server = (

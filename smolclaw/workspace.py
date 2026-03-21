@@ -1,4 +1,3 @@
-"""Workspace management. All agent data lives in ~/.smolclaw/"""
 from __future__ import annotations
 
 import json
@@ -9,7 +8,6 @@ from pathlib import Path
 
 HOME = Path(os.getenv("SMOLCLAW_HOME", Path.home() / ".smolclaw"))
 
-# Paths inside the workspace
 SOUL       = HOME / "SOUL.md"
 AGENT      = HOME / "AGENT.md"
 USER       = HOME / "USER.md"
@@ -26,12 +24,10 @@ SESSION_STATE = HOME / "session_state.json"
 PID_FILE      = HOME / ".pid"
 LOG_FILE      = HOME / "smolclaw.log"
 
-# Default templates shipped with the package
 _TEMPLATES = Path(__file__).parent.parent / "templates"
 
 
 def init() -> None:
-    """Create ~/.smolclaw/ and populate with default templates if missing."""
     HOME.mkdir(parents=True, exist_ok=True)
     HOME.chmod(0o700)
     SKILLS_DIR.mkdir(exist_ok=True)
@@ -50,11 +46,9 @@ def init() -> None:
             if src.exists():
                 shutil.copy(src, dest)
 
-    # Initialize subconscious.yaml with empty threads if missing
     if not SUBCONSCIOUS.exists():
         SUBCONSCIOUS.write_text("threads: []\n")
 
-    # Copy skill templates
     src_skills = _TEMPLATES / "skills"
     if src_skills.is_dir():
         for skill_dir in src_skills.iterdir():
@@ -68,13 +62,11 @@ def init() -> None:
 
 
 def read_template(name: str) -> str:
-    """Read a template file by name from the shipped templates directory."""
     path = _TEMPLATES / name
     return path.read_text()
 
 
 def read(path: Path, default: str = "") -> str:
-    """Read a text file, returning default if the file does not exist."""
     try:
         return path.read_text()
     except FileNotFoundError:
@@ -82,7 +74,6 @@ def read(path: Path, default: str = "") -> str:
 
 
 def read_json(path: Path) -> dict:
-    """Read a JSON file. Returns empty dict if missing or invalid."""
     try:
         return json.loads(path.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
@@ -90,7 +81,6 @@ def read_json(path: Path) -> dict:
 
 
 def write_json(path: Path, data: dict) -> None:
-    """Atomic write: write to unique temp file then rename."""
     fd, tmp_name = tempfile.mkstemp(suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as f:

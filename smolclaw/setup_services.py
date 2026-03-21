@@ -1,4 +1,3 @@
-"""Systemd service and watchdog installation helpers, extracted from setup.py."""
 from __future__ import annotations
 
 import getpass
@@ -20,8 +19,6 @@ def _success(msg: str) -> None:
 def _warn(msg: str) -> None:
     console.print(f"  [bold yellow]⚠[/bold yellow]  {msg}")
 
-
-# ── Systemd Service Generation ────────────────────────────────────────────────
 
 _SERVICE_TEMPLATE = """\
 [Unit]
@@ -46,9 +43,8 @@ _SYSTEMD_RUNTIME = Path("/run/systemd/system")
 
 
 def install_systemd_service(workspace_home: Path) -> None:
-    """Install smolclaw as a systemd user service (no root required)."""
     if not _SYSTEMD_RUNTIME.exists():
-        return  # Not a systemd system — skip silently
+        return
 
     smolclaw_binary = shutil.which("smolclaw") or sys.executable
 
@@ -92,14 +88,11 @@ def install_systemd_service(workspace_home: Path) -> None:
         ))
 
 
-# ── Watchdog Installation ─────────────────────────────────────────────────────
-
 _WATCHDOG_DEST = Path("/usr/local/bin/smolclaw-watchdog")
 _WATCHDOG_CRON = "*/10 * * * * /usr/local/bin/smolclaw-watchdog >> ~/.smolclaw/watchdog.log 2>&1"
 
 
 def install_watchdog(workspace_home: Path) -> None:
-    """Copy watchdog.sh to /usr/local/bin and add a system cron entry."""
     watchdog_src = Path(__file__).parent / "watchdog.sh"
     if not watchdog_src.exists():
         _warn("watchdog.sh not found in package — skipping watchdog installation.")

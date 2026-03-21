@@ -1,4 +1,3 @@
-"""Live Claude Code sessions over Telegram via stream-json."""
 from __future__ import annotations
 
 import asyncio
@@ -21,8 +20,6 @@ _MAX_TURNS = 15
 
 @dataclass
 class CCSession:
-    """State for a live Claude Code session."""
-
     chat_id: str
     session_id: str | None = None
     process: asyncio.subprocess.Process | None = None
@@ -37,27 +34,19 @@ _sessions: dict[str, CCSession] = {}
 
 
 def has_active_session(chat_id: str) -> bool:
-    """Return True if the chat has a CC session (running or idle)."""
     return chat_id in _sessions
 
 
 def is_session_busy(chat_id: str) -> bool:
-    """Return True if the CC session is currently running a process."""
     session = _sessions.get(chat_id)
     return session is not None and session.process is not None
 
 
 def _html_escape(text: str) -> str:
-    """Escape HTML special characters."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _format_event(event: dict) -> str:
-    """Format a stream-json event for Telegram HTML display.
-
-    Only shows assistant text and a compact tool summary line.
-    Tool results are skipped to keep output clean.
-    """
     etype = event.get("type", "")
 
     if etype == "assistant":
@@ -93,7 +82,6 @@ _CC_FOOTER = "\n\n<i>— /cc session (/cc stop to end)</i>"
 
 
 def _truncate_buffer(buf: str) -> str:
-    """Keep only the tail of the buffer to stay within Telegram limits."""
     footer_len = len(_CC_FOOTER)
     max_body = _MAX_TG_MSG - footer_len
     if len(buf) > max_body:
@@ -102,7 +90,6 @@ def _truncate_buffer(buf: str) -> str:
 
 
 async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
-    """Edit the Telegram output message with current buffer."""
     now = time.monotonic()
     if not final and (now - session.last_edit) < _EDIT_INTERVAL:
         return
@@ -121,7 +108,6 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
     except Exception as e:
         err = str(e).lower()
         if "not modified" not in err:
-            # Fall back to plain text if HTML parsing fails
             if "parse" in err or "can't" in err:
                 try:
                     from html import unescape
@@ -141,7 +127,6 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
 
 
 async def _stream_loop(session: CCSession, bot) -> None:
-    """Read stream-json events from claude stdout and relay to Telegram."""
     proc = session.process
     if not proc or not proc.stdout:
         return
@@ -156,7 +141,6 @@ async def _stream_loop(session: CCSession, bot) -> None:
             except json.JSONDecodeError:
                 continue
 
-            # Capture session ID
             if event.get("type") == "system" and event.get("session_id"):
                 session.session_id = event["session_id"]
             if event.get("type") == "result" and event.get("session_id"):
@@ -167,7 +151,6 @@ async def _stream_loop(session: CCSession, bot) -> None:
                 session.buffer += formatted
                 await _edit_output(session, bot)
 
-        # Read stderr for error diagnostics
         stderr_text = ""
         if proc.stderr:
             try:
@@ -176,7 +159,6 @@ async def _stream_loop(session: CCSession, bot) -> None:
             except Exception:
                 pass
 
-        # Final edit with complete output
         if not session.buffer.strip() and stderr_text:
             session.buffer = f"⚠️ CC error:\n<code>{_html_escape(stderr_text[:500])}</code>"
         elif not session.buffer.strip():
@@ -192,7 +174,6 @@ async def _stream_loop(session: CCSession, bot) -> None:
 
 
 def _build_cmd(prompt: str, session: CCSession) -> list[str]:
-    """Build the claude CLI command."""
     cmd = [
         _CLAUDE_BIN, "-p", prompt,
         "--output-format", "stream-json",
@@ -206,7 +187,6 @@ def _build_cmd(prompt: str, session: CCSession) -> list[str]:
 
 
 async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None = None) -> None:
-    """Start a new Claude Code session and stream output to Telegram."""
     if chat_id in _sessions and _sessions[chat_id].process is not None:
         await bot.send_message(chat_id=chat_id, text="CC session already running. Send /cc stop first.")
         return
@@ -250,7 +230,6 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
 
 
 async def continue_session(chat_id: str, prompt: str, bot) -> bool:
-    """Send a follow-up prompt to an existing CC session."""
     session = _sessions.get(chat_id)
     if not session:
         return False
@@ -290,7 +269,6 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
 
 
 async def stop_session(chat_id: str) -> bool:
-    """Stop an active CC session."""
     session = _sessions.pop(chat_id, None)
     if not session:
         return False

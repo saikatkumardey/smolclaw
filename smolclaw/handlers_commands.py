@@ -1,4 +1,3 @@
-"""Command handlers extracted from handlers.py — /help, /status, /crons, /tasks, /context, /model, /models, /effort, /restart, /update, /btw."""
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +36,6 @@ CONTEXT_WARN_THRESHOLD = 0.80
 
 
 def _format_last_turn(result) -> str:
-    """Format cost/usage info for the last turn."""
     if not result:
         return ""
     usage = result.usage or {}
@@ -50,7 +48,6 @@ def _format_last_turn(result) -> str:
 
 
 def _context_fill(chat_id: str) -> tuple[int, float]:
-    """Return (used_tokens, fill_fraction) from last result for a chat."""
     result = get_last_result(chat_id)
     if not result:
         return 0, 0.0

@@ -1,4 +1,3 @@
-"""Dynamic tool loader — wraps tools/*.py files as claude-agent-sdk @tool functions."""
 from __future__ import annotations
 
 import asyncio
@@ -11,16 +10,11 @@ from claude_agent_sdk import SdkMcpTool, tool
 from loguru import logger
 
 _known_tool_files: set[str] = set()
-
-# Per-file cache: path -> (mtime, SdkMcpTool)
 _tool_cache: dict[str, tuple[float, SdkMcpTool]] = {}
-
-# Directory-level cache: (dir_mtime, result_list) — skips glob+stat when dir unchanged
 _dir_cache: tuple[float, list[SdkMcpTool]] | None = None
 
 
 def _validate_schema(schema) -> list[str]:
-    """Validate the SCHEMA attribute of a tool module."""
     if not isinstance(schema, dict) or "function" not in schema:
         return ["SCHEMA must be a dict with a 'function' key"]
     if not schema["function"].get("name"):
@@ -29,12 +23,6 @@ def _validate_schema(schema) -> list[str]:
 
 
 def validate_tool_module(path: Path) -> tuple[bool, list[str], ModuleType | None]:
-    """
-    Import and validate a tool module at *path*.
-
-    Returns (ok, errors, module).  When ok is False the errors list
-    explains why and module is None.
-    """
     try:
         spec = importlib.util.spec_from_file_location(path.stem, path)
         mod = importlib.util.module_from_spec(spec)
@@ -56,10 +44,6 @@ def validate_tool_module(path: Path) -> tuple[bool, list[str], ModuleType | None
 
 
 def _make_sdk_tool(name: str, desc: str, properties: dict, _required: list, execute_fn) -> SdkMcpTool:
-    """
-    Build a claude-agent-sdk @tool-decorated async function wrapping a sync execute_fn.
-    """
-    # Build input_schema as {param: str} dict (SDK resolves types from annotations)
     input_schema: dict[str, Any] = dict.fromkeys(properties, str)
 
     @tool(name, desc, input_schema)
@@ -72,7 +56,6 @@ def _make_sdk_tool(name: str, desc: str, properties: dict, _required: list, exec
 
 
 def _load_single_tool(path: Path, mtime: float) -> SdkMcpTool | None:
-    """Validate and wrap a single tool file. Returns None on failure."""
     if path.name not in _known_tool_files:
         logger.warning("New tool file detected: {} — loaded without integrity check", path.name)
         _known_tool_files.add(path.name)
@@ -100,7 +83,6 @@ def _load_single_tool(path: Path, mtime: float) -> SdkMcpTool | None:
 
 
 def _evict_deleted_cache_entries(tools_dir: Path) -> None:
-    """Remove cache entries for tool files that no longer exist."""
     current_files = {str(p) for p in tools_dir.glob("*.py")}
     for cached_path in list(_tool_cache):
         if cached_path not in current_files:
@@ -108,7 +90,6 @@ def _evict_deleted_cache_entries(tools_dir: Path) -> None:
 
 
 def _load_or_cache_tool(path: Path) -> SdkMcpTool | None:
-    """Return cached tool if mtime matches, otherwise load fresh."""
     str_path = str(path)
     try:
         mtime = path.stat().st_mtime
@@ -124,16 +105,6 @@ def _load_or_cache_tool(path: Path) -> SdkMcpTool | None:
 
 
 def load_custom_tools(tools_dir: Path | None = None) -> list[SdkMcpTool]:
-    """
-    Scan tools/*.py for user-defined tools.
-
-    Convention — each file must export:
-        SCHEMA: dict   — OpenAI-style function schema
-        execute        — callable(**kwargs) -> str
-
-    Wraps each as an SDK @tool function and returns the list.
-    Modules are cached by mtime and only reloaded when the file changes.
-    """
     if tools_dir is None:
         from . import workspace
         tools_dir = workspace.TOOLS_DIR

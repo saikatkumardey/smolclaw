@@ -1,4 +1,3 @@
-"""Interactive setup wizard. Run: smolclaw setup"""
 from __future__ import annotations
 
 import getpass
@@ -23,8 +22,6 @@ from .setup_services import install_watchdog as _install_watchdog
 
 console = Console()
 
-# ── ASCII Banner ──────────────────────────────────────────────────────────────
-
 BANNER = r"""
  ____                  _  ____  _
 / ___|| _ __ ___   ___ | |/ ___|| | __ _ __      __
@@ -32,8 +29,6 @@ BANNER = r"""
  ___) | | | | | | (_) | | |___ | | (_| | \ V  V /
 |____/|_| |_| |_|\___/|_|\____||_|\__,_|  \_/\_/
 """
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _read_env(path: Path) -> dict[str, str]:
     if not path.exists():
@@ -87,7 +82,6 @@ def _already(label: str, value: str) -> None:
 
 
 def _validate_token(token: str) -> tuple[bool, str | None]:
-    """Call Telegram getMe. Returns (ok, bot_username_or_error)."""
     try:
         resp = requests.get(
             f"https://api.telegram.org/bot{token}/getMe",
@@ -104,13 +98,7 @@ def _validate_token(token: str) -> tuple[bool, str | None]:
         return False, f"error: {e}"
 
 
-# ── Step Implementations ──────────────────────────────────────────────────────
-
 def _prompt_and_validate_token() -> tuple[str | None, bool]:
-    """Prompt for a token and validate it. Returns (token, should_continue).
-
-    Returns (token, True) on success, (None, True) to retry, (None, False) to stop.
-    """
     try:
         token = getpass.getpass("  Paste your bot token (hidden): ").strip()
     except KeyboardInterrupt:
@@ -289,8 +277,6 @@ def step_claude_auth(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
-# ── Summary Panel ─────────────────────────────────────────────────────────────
-
 def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
     console.print()
     console.print(Rule(style="green"))
@@ -336,7 +322,6 @@ def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
             summary.add_row(key, f"[green]{val}[/green]")
             shown.add(key)
 
-    # Any extra keys not in our list
     for key, val in env.items():
         if key not in shown:
             display_val = _mask(val) if key in secret_keys else val
@@ -361,12 +346,9 @@ def _print_summary(env: dict[str, str], workspace_home: Path) -> None:
     console.print()
 
 
-# ── Main Entry Point ──────────────────────────────────────────────────────────
-
 def run() -> None:
     from . import workspace
 
-    # ── Banner ────────────────────────────────────────────────────────────
     console.print(Panel(
         Text(BANNER.strip(), style="bold cyan", justify="center"),
         subtitle="[dim]Personal AI Agent Setup Wizard[/dim]",
@@ -381,14 +363,12 @@ def run() -> None:
     )
     console.print()
 
-    # ── Bootstrap workspace ───────────────────────────────────────────────
     workspace.init()
     _info(f"Workspace: [bold]{workspace.HOME}[/bold]")
 
     env_path = workspace.HOME / ".env"
     env = _read_env(env_path)
 
-    # ── Run steps ─────────────────────────────────────────────────────────
     steps = [
         step_telegram_bot,
         step_telegram_id,
@@ -400,7 +380,6 @@ def run() -> None:
         for step_fn in steps:
             env = step_fn(env)
             completed += 1
-            # Write after each step so partial progress is always saved
             _write_env(env_path, env)
     except KeyboardInterrupt:
         console.print()
@@ -410,7 +389,6 @@ def run() -> None:
         console.print()
         sys.exit(0)
 
-    # ── Patch crons.yaml: fill in deliver_to for jobs with empty deliver_to ──
     user_id = env.get("ALLOWED_USER_IDS", "").split(",")[0].strip()
     if user_id and workspace.CRONS.exists():
         try:
@@ -425,11 +403,6 @@ def run() -> None:
         except (OSError, ValueError, KeyError):
             pass  # Non-fatal — user can edit crons.yaml manually
 
-    # ── Final summary ─────────────────────────────────────────────────────
     _print_summary(env, workspace.HOME)
-
-    # ── Systemd service installation ──────────────────────────────────────
     _install_systemd_service(workspace.HOME)
-
-    # ── Watchdog installation ──────────────────────────────────────────────
     _install_watchdog(workspace.HOME)

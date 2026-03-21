@@ -1,4 +1,3 @@
-"""Custom tools as claude-agent-sdk @tool-decorated async functions."""
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +28,6 @@ _ALLOWED_SOURCE_PREFIX = "git+https://github.com/saikatkumardey/smolclaw"
 
 
 def _text(t: str) -> dict:
-    """Standard tool response wrapper."""
     return {"content": [{"type": "text", "text": t}]}
 
 
@@ -91,7 +89,6 @@ async def self_update(args: dict) -> dict:
     if remote and remote == old_version:
         return _text(f"Already on latest version (v{old_version}). No update needed.")
 
-    # Actually install (blocking — run in thread to avoid stalling the event loop)
     result = await asyncio.to_thread(
         subprocess.run,
         ["uv", "tool", "install", "--upgrade", source],
@@ -104,12 +101,10 @@ async def self_update(args: dict) -> dict:
             await asyncio.to_thread(_send_telegram, chat_id, msg)
         return _text(msg)
 
-    # Build update summary with version + changelog
     summary = _get_update_summary(source, old_version)
     if chat_id:
         await asyncio.to_thread(_send_telegram, chat_id, f"Update successful. Restarting...\n\n{summary}")
 
-    # Save summary in handover so the agent knows what changed after restart
     from .handover import save
     save(f"Self-update completed.\n\n{summary}\n\nPENDING: none")
 
@@ -139,13 +134,12 @@ async def telegram_send_file(args: dict) -> dict:
 async def update_config(args: dict) -> dict:
     from .config import Config
 
-    _AGENT_EXCLUDED = {"model"}  # model changes require session resets; use /models
+    _AGENT_EXCLUDED = {"model"}
     mutable = set(Config.DEFAULTS.keys()) - _AGENT_EXCLUDED
     key = args["key"]
     if key not in mutable:
         return _text(f"Error: Cannot set '{key}' via this tool. Use /models for model changes.")
     cfg = Config.load()
-    # Coerce to the expected type from DEFAULTS
     expected_type = type(Config.DEFAULTS[key])
     try:
         raw = args["value"]
@@ -169,7 +163,6 @@ async def read_skill_tool(args: dict) -> dict:
 
 
 async def _try_qmd_search(query_str: str) -> str | None:
-    """Try semantic search via qmd. Returns result text or None."""
     if not (shutil.which("qmd") and len(query_str) > 3):
         return None
     try:
@@ -186,7 +179,6 @@ async def _try_qmd_search(query_str: str) -> str | None:
 
 
 def _entry_matches(entry: dict, query_lower: str, chat_filter: str) -> bool:
-    """Return True if a session log entry matches the search criteria."""
     if entry.get("role") not in ("user", "assistant"):
         return False
     if chat_filter and entry.get("chat_id") != chat_filter:
@@ -196,7 +188,6 @@ def _entry_matches(entry: dict, query_lower: str, chat_filter: str) -> bool:
 
 
 def _format_entry(entry: dict) -> str:
-    """Format a session log entry for display."""
     ts = entry.get("ts", "")[:16]
     cid = entry.get("chat_id", "")
     content = entry.get("content", "")[:300]
@@ -204,7 +195,6 @@ def _format_entry(entry: dict) -> str:
 
 
 def _grep_session_files(files: list, query_lower: str, chat_filter: str, max_results: int = 20) -> list[str]:
-    """Search through JSONL session log files for matching entries."""
     results = []
     for f in files:
         if not f.exists():
@@ -272,7 +262,6 @@ async def telegram_send_voice(args: dict) -> dict:
     voice = str(args.get("voice", "en-US-AriaNeural") or "en-US-AriaNeural")
     caption = str(args.get("caption", "") or "")
 
-    # Generate voice file
     with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False, dir=str(workspace.HOME)) as tmp:
         ogg_path = tmp.name
 
