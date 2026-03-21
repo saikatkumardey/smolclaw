@@ -9,10 +9,10 @@ from textual.containers import Horizontal, ScrollableContainer
 from textual.widgets import Input, LoadingIndicator, Static
 from textual.worker import Worker, WorkerState
 
+import smolclaw.tools as _tools_mod
 from smolclaw.agent import get_current_model, reset_session
 from smolclaw.agent import run as agent_run
 from smolclaw.scheduler import setup_scheduler
-import smolclaw.tools as _tools_mod
 
 _BG = "#1a1b26"
 _PURPLE = "#bb9af7"
