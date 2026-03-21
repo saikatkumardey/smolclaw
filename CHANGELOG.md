@@ -2,6 +2,19 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.7.8] - 2026-03-21
+
+- chore: upgrade all dependencies
+- fix: force-terminate subprocess when session disconnect fails due to anyio cancel-scope error
+- release: v0.7.7
+- ci: update python-doctor badge to 93/100
+- fix: resolve python-doctor lint, complexity, and precedence issues
+- ci: update python-doctor badge to 86/100
+- fix: improve memory retention and reduce context amnesia
+- update changelog with comprehensive per-version breakdown
+- add curated changelog covering all releases, fix Makefile to preserve history
+
+
 ## [0.7.7] - 2026-03-21
 
 - fix: resolve python-doctor lint, complexity, and precedence issues
