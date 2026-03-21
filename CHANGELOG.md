@@ -2,6 +2,15 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.7.7] - 2026-03-21
+
+- fix: resolve python-doctor lint, complexity, and precedence issues
+- ci: update python-doctor badge to 86/100
+- fix: improve memory retention and reduce context amnesia
+- update changelog with comprehensive per-version breakdown
+- add curated changelog covering all releases, fix Makefile to preserve history
+
+
 ## [0.7.6] - 2026-03-20
 
 - add CC mode that takes over all messages, blocks while busy
