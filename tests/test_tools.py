@@ -23,17 +23,17 @@ def _mock_httpx_client(ok=True, text="Unauthorized"):
     return MagicMock(return_value=client)
 
 
-def test_telegram_sender_success():
-    from smolclaw.tools import TelegramSender
+def test_send_telegram_success():
+    from smolclaw.tools import _send_telegram
     with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=True)):
-        result = TelegramSender().send(chat_id="123", message="hi")
+        result = _send_telegram(chat_id="123", message="hi")
         assert result.startswith("Sent.")
 
 
-def test_telegram_sender_failure():
-    from smolclaw.tools import TelegramSender
+def test_send_telegram_failure():
+    from smolclaw.tools import _send_telegram
     with patch("smolclaw.tools.httpx.Client", _mock_httpx_client(ok=False)):
-        assert "Failed" in TelegramSender().send(chat_id="123", message="hi")
+        assert "Failed" in _send_telegram(chat_id="123", message="hi")
 
 
 def test_save_handover_writes_file(tmp_path, monkeypatch):

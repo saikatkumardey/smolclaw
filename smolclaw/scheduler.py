@@ -12,11 +12,9 @@ from loguru import logger
 
 from . import workspace
 from .auth import default_chat_id
-from .tools import TelegramSender
+from .tools import _send_telegram
 
 os.environ.setdefault("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
-
-_telegram = TelegramSender()
 
 SUBCONSCIOUS_OK = "SUBCONSCIOUS_OK"
 
@@ -72,7 +70,7 @@ def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
     if not deliver_to:
         return
     if _auth_fail_count >= _AUTH_ALERT_THRESHOLD and not _auth_alert_sent:
-        _telegram.send(
+        _send_telegram(
             chat_id=deliver_to,
             message=f"⚠️ AUTH DOWN — {_auth_fail_count} consecutive auth failures. "
             f"OAuth token likely expired. All crons are failing. "
@@ -80,13 +78,13 @@ def _handle_auth_failure(job_id: str, exc: Exception, deliver_to: str) -> None:
         )
         _auth_alert_sent = True
     elif _auth_alert_sent and _auth_fail_count % _AUTH_REMIND_INTERVAL == 0:
-        _telegram.send(
+        _send_telegram(
             chat_id=deliver_to,
             message=f"⚠️ AUTH STILL DOWN — {_auth_fail_count} consecutive failures. "
             f"Please run: claude /login"
         )
     elif not _auth_alert_sent:
-        _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
+        _send_telegram(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
 
 
 def _reset_auth_tracking() -> None:
@@ -105,7 +103,7 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = No
     if isinstance(exc, TimeoutError):
         logger.error("Cron {} timed out after {}s — thread abandoned (daemon, will die on exit)", job_id, timeout)
         if deliver_to:
-            _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' timed out after {timeout}s.")
+            _send_telegram(chat_id=deliver_to, message=f"Cron '{job_id}' timed out after {timeout}s.")
         return
 
     if exc is not None:
@@ -115,13 +113,13 @@ def _run_job(job_id: str, prompt: str, deliver_to: str, timeout: int | None = No
         else:
             _reset_auth_tracking()
             if deliver_to:
-                _telegram.send(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
+                _send_telegram(chat_id=deliver_to, message=f"Cron '{job_id}' failed: {exc}")
         return
 
     _reset_auth_tracking()
 
     if not _should_suppress_result(job_id, result) and deliver_to:
-        _telegram.send(chat_id=deliver_to, message=result)
+        _send_telegram(chat_id=deliver_to, message=result)
 
 
 def _read_recent_logs(sessions_dir, tail_bytes: int = 4000) -> str:

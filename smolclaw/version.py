@@ -36,13 +36,20 @@ def local_version() -> str:
     return "unknown"
 
 
+def _extract_repo(source: str) -> str | None:
+    """Extract GitHub owner/repo from a source URL."""
+    repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
+    if not repo_match:
+        return None
+    return repo_match.group(1).rstrip(".git")
+
+
 def check_remote_version(source: str) -> str | None:
     try:
         import requests
-        repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-        if not repo_match:
+        repo = _extract_repo(source)
+        if not repo:
             return None
-        repo = repo_match.group(1).rstrip(".git")
         resp = requests.get(
             f"https://raw.githubusercontent.com/{repo}/main/pyproject.toml",
             timeout=10,
@@ -81,14 +88,6 @@ def _detect_new_version() -> str:
     except (OSError, subprocess.SubprocessError):
         pass
     return "unknown"
-
-
-def _extract_repo(source: str) -> str | None:
-    """Extract GitHub owner/repo from a source URL."""
-    repo_match = re.search(r"github\.com/([^/]+/[^/.\s]+)", source)
-    if not repo_match:
-        return None
-    return repo_match.group(1).rstrip(".git")
 
 
 def _fetch_recent_changes(source: str, old_version: str, max_changes: int = 5) -> list[str]:

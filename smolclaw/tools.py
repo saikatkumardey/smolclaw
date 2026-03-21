@@ -10,36 +10,37 @@ from . import workspace
 MAX_TG_MSG = 4000
 
 
-def _send_chunk(client: httpx.Client, token: str, chat_id: str, chunk: str) -> int | None:
-    r = client.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json={"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"},
-    )
-    if not r.is_success:
-        r = client.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": chunk},
-        )
-    if not r.is_success:
-        return None
-    try:
-        return r.json().get("result", {}).get("message_id")
-    except (ValueError, KeyError):
-        return None
+def _tg_api(method: str, *, timeout: int = 10, **kwargs) -> httpx.Response:
+    """Call a Telegram Bot API method."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    with httpx.Client(timeout=timeout) as client:
+        return client.post(f"https://api.telegram.org/bot{token}/{method}", **kwargs)
+
+
+def _tg_api_md(method: str, body: dict, *, timeout: int = 10) -> httpx.Response:
+    """Call a Telegram API method with Markdown, falling back to plain text."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    with httpx.Client(timeout=timeout) as client:
+        r = client.post(f"https://api.telegram.org/bot{token}/{method}", json={**body, "parse_mode": "Markdown"})
+        if not r.is_success:
+            r = client.post(f"https://api.telegram.org/bot{token}/{method}", json=body)
+        return r
 
 
 def _send_telegram(chat_id: str, message: str) -> str:
     try:
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         chunks = [message[i:i + MAX_TG_MSG] for i in range(0, len(message), MAX_TG_MSG)]
         last_message_id = None
-        with httpx.Client(timeout=10) as client:
-            for chunk in chunks:
-                mid = _send_chunk(client, token, chat_id, chunk)
-                if mid is None and last_message_id is None:
+        for chunk in chunks:
+            r = _tg_api_md("sendMessage", {"chat_id": chat_id, "text": chunk})
+            if not r.is_success:
+                if last_message_id is None:
                     return "Failed to send message."
-                if mid is not None:
-                    last_message_id = mid
+                continue
+            try:
+                last_message_id = r.json().get("result", {}).get("message_id")
+            except (ValueError, KeyError):
+                pass
         if last_message_id:
             return f"Sent. [message_id={last_message_id}]"
         return "Sent."
@@ -49,30 +50,9 @@ def _send_telegram(chat_id: str, message: str) -> str:
 
 def _edit_telegram(chat_id: str, message_id: int, message: str) -> str:
     try:
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        text = message[:MAX_TG_MSG]
-        with httpx.Client(timeout=10) as client:
-            r = client.post(
-                f"https://api.telegram.org/bot{token}/editMessageText",
-                json={
-                    "chat_id": chat_id,
-                    "message_id": message_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                },
-            )
-            if not r.is_success:
-                r = client.post(
-                    f"https://api.telegram.org/bot{token}/editMessageText",
-                    json={
-                        "chat_id": chat_id,
-                        "message_id": message_id,
-                        "text": text,
-                    },
-                )
-                if not r.is_success:
-                    return f"Failed: {r.text}"
-        return "Edited."
+        body = {"chat_id": chat_id, "message_id": message_id, "text": message[:MAX_TG_MSG]}
+        r = _tg_api_md("editMessageText", body)
+        return "Edited." if r.is_success else f"Failed: {r.text}"
     except Exception as e:
         return f"Error: {e}"
 
@@ -84,13 +64,8 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
             path.relative_to(workspace.HOME.resolve())
         except ValueError:
             return f"Error: file path {file_path!r} is outside the workspace."
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        with open(path, "rb") as f, httpx.Client(timeout=30) as client:
-            r = client.post(
-                f"https://api.telegram.org/bot{token}/sendDocument",
-                data={"chat_id": chat_id},
-                files={"document": (path.name, f)},
-            )
+        with open(path, "rb") as f:
+            r = _tg_api("sendDocument", timeout=30, data={"chat_id": chat_id}, files={"document": (path.name, f)})
         return "Sent." if r.is_success else f"Failed: {r.text}"
     except FileNotFoundError:
         return f"File not found: {file_path}"
@@ -101,16 +76,11 @@ def _send_telegram_file(chat_id: str, file_path: str) -> str:
 def _send_telegram_voice(chat_id: str, audio_path: str, caption: str = "") -> str:
     try:
         path = Path(audio_path).resolve()
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        with open(path, "rb") as f, httpx.Client(timeout=30) as client:
-            data = {"chat_id": chat_id}
-            if caption:
-                data["caption"] = caption[:1024]
-            r = client.post(
-                f"https://api.telegram.org/bot{token}/sendVoice",
-                data=data,
-                files={"voice": (path.name, f, "audio/ogg")},
-            )
+        data = {"chat_id": chat_id}
+        if caption:
+            data["caption"] = caption[:1024]
+        with open(path, "rb") as f:
+            r = _tg_api("sendVoice", timeout=30, data=data, files={"voice": (path.name, f, "audio/ogg")})
         return "Sent." if r.is_success else f"Failed: {r.text}"
     except FileNotFoundError:
         return f"File not found: {audio_path}"
@@ -151,21 +121,11 @@ def _text_to_voice(text: str, output_path: str, voice: str = "en-US-AriaNeural")
 
 def _set_reaction(chat_id: str, message_id: int, emoji: str) -> str:
     try:
-        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        with httpx.Client(timeout=10) as client:
-            r = client.post(
-                f"https://api.telegram.org/bot{token}/setMessageReaction",
-                json={
-                    "chat_id": chat_id,
-                    "message_id": message_id,
-                    "reaction": [{"type": "emoji", "emoji": emoji}],
-                },
-            )
+        r = _tg_api("setMessageReaction", json={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reaction": [{"type": "emoji", "emoji": emoji}],
+        })
         return "Done." if r.is_success else f"Failed: {r.text}"
     except Exception as e:
         return f"Error: {e}"
-
-
-class TelegramSender:
-    def send(self, chat_id: str, message: str) -> str:
-        return _send_telegram(chat_id, message)

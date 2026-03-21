@@ -11,9 +11,9 @@ from smolclaw import scheduler as _sched
 class TestRunJobTimeout:
     """Cron jobs must not block forever — verify timeout behavior."""
 
-    @patch.object(_sched, "_telegram")
+    @patch.object(_sched, "_send_telegram")
     @patch("smolclaw.agent.run")
-    def test_timeout_abandons_hung_thread(self, mock_run, mock_tg):
+    def test_timeout_abandons_hung_thread(self, mock_run, mock_send):
         """A cron job that exceeds the timeout notifies the user."""
         hang_event = threading.Event()
 
@@ -26,14 +26,13 @@ class TestRunJobTimeout:
         with patch.object(_sched, "_CRON_TIMEOUT_SECONDS", 0.5):
             _sched._run_job("test-hang", "prompt", deliver_to="123")
 
-        # Timeout errors are now reported to the user
-        mock_tg.send.assert_called_once()
-        assert "timed out" in mock_tg.send.call_args.kwargs["message"]
+        mock_send.assert_called_once()
+        assert "timed out" in mock_send.call_args.kwargs["message"]
         hang_event.set()  # release the thread
 
-    @patch.object(_sched, "_telegram")
+    @patch.object(_sched, "_send_telegram")
     @patch("smolclaw.agent.run")
-    def test_successful_job_delivers(self, mock_run, mock_tg):
+    def test_successful_job_delivers(self, mock_run, mock_send):
         """A job that completes within timeout delivers its result."""
 
         async def _quick(*a, **kw):
@@ -41,11 +40,11 @@ class TestRunJobTimeout:
 
         mock_run.side_effect = _quick
         _sched._run_job("test-ok", "prompt", deliver_to="123")
-        mock_tg.send.assert_called_once_with(chat_id="123", message="hello world")
+        mock_send.assert_called_once_with(chat_id="123", message="hello world")
 
-    @patch.object(_sched, "_telegram")
+    @patch.object(_sched, "_send_telegram")
     @patch("smolclaw.agent.run")
-    def test_exception_notifies_user(self, mock_run, mock_tg):
+    def test_exception_notifies_user(self, mock_run, mock_send):
         """A job that raises an exception should notify the user."""
 
         async def _boom(*a, **kw):
@@ -53,9 +52,9 @@ class TestRunJobTimeout:
 
         mock_run.side_effect = _boom
         _sched._run_job("test-err", "prompt", deliver_to="123")
-        mock_tg.send.assert_called_once()
-        assert "failed" in mock_tg.send.call_args.kwargs["message"]
-        assert "boom" in mock_tg.send.call_args.kwargs["message"]
+        mock_send.assert_called_once()
+        assert "failed" in mock_send.call_args.kwargs["message"]
+        assert "boom" in mock_send.call_args.kwargs["message"]
 
 
 class TestSubconsciousTimeout:
@@ -64,9 +63,9 @@ class TestSubconsciousTimeout:
     def test_subconscious_timeout_is_longer_than_default(self):
         assert _sched._SUBCONSCIOUS_TIMEOUT_SECONDS > _sched._CRON_TIMEOUT_SECONDS
 
-    @patch.object(_sched, "_telegram")
+    @patch.object(_sched, "_send_telegram")
     @patch("smolclaw.agent.run")
-    def test_subconscious_passes_longer_timeout(self, mock_run, mock_tg):
+    def test_subconscious_passes_longer_timeout(self, mock_run, mock_send):
         """_run_subconscious uses _SUBCONSCIOUS_TIMEOUT_SECONDS, not the default."""
         call_log = []
 
@@ -92,5 +91,3 @@ class TestVersionCheckSkipped:
 
     def test_skip_version_check_env_set(self):
         assert os.environ.get("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK") == "1"
-
-

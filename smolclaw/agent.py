@@ -286,31 +286,20 @@ async def _ensure_session(
         )
 
 
-async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
-    session = _sessions[chat_id]
-    await session.client.query(timestamped_message)
-    parts: list[str] = []
-    tool_names: list[str] = []
-    async for msg in session.client.receive_response():
-        if isinstance(msg, AssistantMessage):
-            _collect_assistant_parts(msg, parts, tool_names)
-        elif isinstance(msg, ResultMessage):
-            session.last_result = msg
-            _log_result(chat_id, msg)
-
-    if parts:
-        return "\n".join(parts)
-    if tool_names:
-        return f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
-    return "(no response)"
-
-
 def _collect_assistant_parts(msg: AssistantMessage, parts: list[str], tool_names: list[str]) -> None:
     for block in msg.content:
         if isinstance(block, TextBlock):
             parts.append(block.text)
         elif isinstance(block, ToolUseBlock):
             tool_names.append(block.name)
+
+
+def _format_result(parts: list[str], tool_names: list[str]) -> str:
+    if parts:
+        return "\n".join(parts)
+    if tool_names:
+        return f"Done. (used: {', '.join(dict.fromkeys(tool_names))})"
+    return "(no response)"
 
 
 def _extract_stream_delta(msg: StreamEvent) -> str | None:
@@ -323,6 +312,20 @@ def _extract_stream_delta(msg: StreamEvent) -> str | None:
     if delta.get("type") != "text_delta":
         return None
     return delta.get("text", "") or None
+
+
+async def _execute_turn(chat_id: str, timestamped_message: str) -> str:
+    session = _sessions[chat_id]
+    await session.client.query(timestamped_message)
+    parts: list[str] = []
+    tool_names: list[str] = []
+    async for msg in session.client.receive_response():
+        if isinstance(msg, AssistantMessage):
+            _collect_assistant_parts(msg, parts, tool_names)
+        elif isinstance(msg, ResultMessage):
+            session.last_result = msg
+            _log_result(chat_id, msg)
+    return _format_result(parts, tool_names)
 
 
 async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
@@ -340,58 +343,7 @@ async def _execute_turn_streaming(chat_id: str, timestamped_message: str):
         elif isinstance(msg, ResultMessage):
             session.last_result = msg
             _log_result(chat_id, msg)
-
-    if parts:
-        yield ("done", "\n".join(parts))
-    elif tool_names:
-        yield ("done", f"Done. (used: {', '.join(dict.fromkeys(tool_names))})")
-    else:
-        yield ("done", "(no response)")
-
-
-async def run_streaming(chat_id: str, user_message: str):
-    dynamic_tools = load_custom_tools()
-    current_tool_names = frozenset(t.name for t in dynamic_tools)
-    dynamic_mcp_server = (
-        create_sdk_mcp_server(name="dynamic", version="1.0.0", tools=dynamic_tools)
-        if dynamic_tools else None
-    )
-
-    lock = _session_locks[chat_id]
-    async with lock:
-        await _ensure_session(chat_id, current_tool_names, dynamic_mcp_server)
-        timestamped_message = f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
-        session_log(chat_id, "user", user_message)
-
-        reply = "(no response)"
-        try:
-            async for event_type, data in _execute_turn_streaming(chat_id, timestamped_message):
-                if event_type == "done":
-                    reply = data
-                else:
-                    yield (event_type, data)
-        except Exception as e:
-            logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
-            reply = f"Something went wrong ({type(e).__name__}). Please try again."
-        finally:
-            session = _sessions.get(chat_id)
-            if session and session.handover_pending:
-                handover_clear()
-                session.handover_pending = False
-
-        session_log(chat_id, "assistant", reply)
-        yield ("done", reply)
-
-        try:
-            await _maybe_auto_rotate(chat_id)
-        except Exception as e:
-            logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
-            _sessions.pop(chat_id, None)
-
-    if chat_id.startswith("cron:"):
-        _session_locks.pop(chat_id, None)
-    else:
-        _prune_stale_locks()
+    yield ("done", _format_result(parts, tool_names))
 
 
 def _log_result(chat_id: str, msg: ResultMessage) -> None:
@@ -425,42 +377,81 @@ async def _maybe_auto_rotate(chat_id: str) -> None:
         await reset_session(chat_id)
 
 
-async def run(chat_id: str, user_message: str) -> str:
+def _prepare_dynamic_tools() -> tuple[frozenset[str], object]:
     dynamic_tools = load_custom_tools()
-    current_tool_names = frozenset(t.name for t in dynamic_tools)
-    dynamic_mcp_server = (
+    names = frozenset(t.name for t in dynamic_tools)
+    server = (
         create_sdk_mcp_server(name="dynamic", version="1.0.0", tools=dynamic_tools)
         if dynamic_tools else None
     )
+    return names, server
 
-    lock = _session_locks[chat_id]
-    async with lock:
-        await _ensure_session(chat_id, current_tool_names, dynamic_mcp_server)
 
-        timestamped_message = f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
-        session_log(chat_id, "user", user_message)
+def _timestamp_message(user_message: str) -> str:
+    return f"[Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}]\n\n{user_message}"
 
-        try:
-            reply = await _execute_turn(chat_id, timestamped_message)
-        except Exception as e:
-            logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
-            reply = f"Something went wrong ({type(e).__name__}). Please try again."
-        finally:
-            session = _sessions.get(chat_id)
-            if session and session.handover_pending:
-                handover_clear()
-                session.handover_pending = False
 
-        session_log(chat_id, "assistant", reply)
+async def _finalize_turn(chat_id: str, reply: str) -> None:
+    """Clear handover, log reply, auto-rotate, and clean up locks."""
+    session = _sessions.get(chat_id)
+    if session and session.handover_pending:
+        handover_clear()
+        session.handover_pending = False
+    session_log(chat_id, "assistant", reply)
+    try:
+        await _maybe_auto_rotate(chat_id)
+    except Exception as e:
+        logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
+        _sessions.pop(chat_id, None)
 
-        try:
-            await _maybe_auto_rotate(chat_id)
-        except Exception as e:
-            logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
-            _sessions.pop(chat_id, None)
 
+def _cleanup_locks(chat_id: str) -> None:
     if chat_id.startswith("cron:"):
         _session_locks.pop(chat_id, None)
     else:
         _prune_stale_locks()
+
+
+async def run_streaming(chat_id: str, user_message: str):
+    tool_names, mcp_server = _prepare_dynamic_tools()
+    lock = _session_locks[chat_id]
+    async with lock:
+        await _ensure_session(chat_id, tool_names, mcp_server)
+        timestamped = _timestamp_message(user_message)
+        session_log(chat_id, "user", user_message)
+
+        reply = "(no response)"
+        try:
+            async for event_type, data in _execute_turn_streaming(chat_id, timestamped):
+                if event_type == "done":
+                    reply = data
+                else:
+                    yield (event_type, data)
+        except Exception as e:
+            logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
+            reply = f"Something went wrong ({type(e).__name__}). Please try again."
+
+        await _finalize_turn(chat_id, reply)
+        yield ("done", reply)
+
+    _cleanup_locks(chat_id)
+
+
+async def run(chat_id: str, user_message: str) -> str:
+    tool_names, mcp_server = _prepare_dynamic_tools()
+    lock = _session_locks[chat_id]
+    async with lock:
+        await _ensure_session(chat_id, tool_names, mcp_server)
+        timestamped = _timestamp_message(user_message)
+        session_log(chat_id, "user", user_message)
+
+        try:
+            reply = await _execute_turn(chat_id, timestamped)
+        except Exception as e:
+            logger.exception("Agent error for {}: {}: {}", chat_id, type(e).__name__, e)
+            reply = f"Something went wrong ({type(e).__name__}). Please try again."
+
+        await _finalize_turn(chat_id, reply)
+
+    _cleanup_locks(chat_id)
     return reply

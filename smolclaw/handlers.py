@@ -143,36 +143,16 @@ async def _reply_chunked(message, text: str, edit_message=None) -> None:
             await _send_md_msg(message, chunk)
 
 
-def _inject_reply_id(agent_msg: str, chat_id: str, reply_id: int) -> str:
-    """Inject reply_id into the agent message metadata if not already present."""
-    tag = f"[chat_id={chat_id}"
-    if tag in agent_msg and "reply_id=" not in agent_msg:
-        return agent_msg.replace(tag, f"[chat_id={chat_id} reply_id={reply_id}", 1)
-    return agent_msg
-
-
-async def _send_reply(bot, message, chat_id: str, reply: str, placeholder) -> None:
+async def _send_reply(bot, message, chat_id: str, reply: str) -> None:
     """Send the agent reply via the appropriate channel."""
-    if message or placeholder:
-        await _reply_chunked(message, reply, edit_message=placeholder)
+    if message:
+        await _reply_chunked(message, reply)
     else:
         fmt = _to_telegram_md(reply)
         try:
             await bot.send_message(chat_id=chat_id, text=fmt, parse_mode="Markdown")
         except Exception:
             await bot.send_message(chat_id=chat_id, text=fmt)
-
-
-async def _send_error(message, placeholder, error_msg: str) -> None:
-    """Send an error message via placeholder edit or message reply."""
-    if placeholder:
-        try:
-            await placeholder.edit_text(error_msg)
-            return
-        except Exception:
-            logger.debug("failed to edit placeholder with error", exc_info=True)
-    if message:
-        await message.reply_text(error_msg)
 
 
 _DRAFT_INTERVAL = 0.5  # minimum seconds between draft updates
@@ -216,7 +196,7 @@ async def _run_agent_and_reply_streaming(
                 if not data or _is_tool_noise(data):
                     return
                 reply = _append_context_warn(data, chat_id) if context_warn else data
-                await _send_reply(bot, message, chat_id, reply, placeholder=None)
+                await _send_reply(bot, message, chat_id, reply)
     except Exception as e:
         logger.exception("Streaming error: %s", e)
         if message:
@@ -248,13 +228,12 @@ async def _run_agent_and_reply(
         if not reply or _is_tool_noise(reply):
             return
         if context_warn:
-            _used, fill = _context_fill(chat_id)
-            if fill >= CONTEXT_WARN_THRESHOLD:
-                reply += f"\n\n⚠️ Context at {fill*100:.0f}% — consider /reset soon."
-        await _send_reply(bot, message, chat_id, reply, placeholder=None)
+            reply = _append_context_warn(reply, chat_id)
+        await _send_reply(bot, message, chat_id, reply)
     except Exception as e:
         logger.exception("Error: %s", e)
-        await _send_error(message, None, _classify_error(e))
+        if message:
+            await message.reply_text(_classify_error(e))
 
 
 @require_allowed

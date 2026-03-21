@@ -195,23 +195,34 @@ async def on_models(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_selection_callback(
+    update: Update, prefix: str, choices: list[tuple[str, str]],
+    apply_fn, confirm_msg: str,
+) -> None:
+    """Generic handler for inline keyboard selection callbacks (model, effort, etc.)."""
     cb = update.callback_query
     await cb.answer()
-    if not (cb.data or "").startswith("model:"):
+    if not (cb.data or "").startswith(f"{prefix}:"):
         return
     if not is_allowed(update.effective_chat.id):
         await cb.edit_message_text("Not authorised.")
         return
-    selected = cb.data[len("model:"):]
-    if selected not in {mid for mid, _ in AVAILABLE_MODELS}:
-        await cb.edit_message_text("Unknown model.")
+    selected = cb.data[len(f"{prefix}:"):]
+    if selected not in {cid for cid, _ in choices}:
+        await cb.edit_message_text(f"Unknown {prefix}.")
         return
-    await set_model(selected)
-    label = next((lbl for mid, lbl in AVAILABLE_MODELS if mid == selected), selected)
+    await apply_fn(selected)
+    label = next((lbl for cid, lbl in choices if cid == selected), selected)
     await cb.edit_message_text(
-        f"✓ Switched to *{label}*\n`{selected}`\n\nAll sessions reset — next message uses the new model.",
+        f"✓ {confirm_msg.format(label=label, selected=selected)}",
         parse_mode="Markdown",
+    )
+
+
+async def on_model_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    await _handle_selection_callback(
+        update, "model", AVAILABLE_MODELS, set_model,
+        "Switched to *{label}*\n`{selected}`\n\nAll sessions reset — next message uses the new model.",
     )
 
 
@@ -231,24 +242,10 @@ async def on_effort(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-
 async def on_effort_callback(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-    cb = update.callback_query
-    await cb.answer()
-    if not (cb.data or "").startswith("effort:"):
-        return
-    if not is_allowed(update.effective_chat.id):
-        await cb.edit_message_text("Not authorised.")
-        return
-    selected = cb.data[len("effort:"):]
-    if selected not in {eid for eid, _ in AVAILABLE_EFFORTS}:
-        await cb.edit_message_text("Unknown effort.")
-        return
-    await set_effort(selected)
-    label = next((lbl for eid, lbl in AVAILABLE_EFFORTS if eid == selected), selected)
-    await cb.edit_message_text(
-        f"✓ Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
-        parse_mode="Markdown",
+    await _handle_selection_callback(
+        update, "effort", AVAILABLE_EFFORTS, set_effort,
+        "Effort set to *{label}*\n\nAll sessions reset — next message uses the new effort level.",
     )
 
 
