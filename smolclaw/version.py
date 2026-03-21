@@ -92,24 +92,25 @@ def _extract_repo(source: str) -> str | None:
     return repo_match.group(1).rstrip(".git")
 
 
-def _fetch_recent_changes(source: str, max_changes: int = 5) -> list[str]:
-    """Fetch recent non-version-bump commit messages from GitHub."""
+def _fetch_recent_changes(source: str, old_version: str, max_changes: int = 5) -> list[str]:
+    """Fetch commit messages between old version tag and HEAD from GitHub."""
     repo = _extract_repo(source)
     if not repo:
         return []
     try:
         import requests
+        tag = f"v{old_version}"
         resp = requests.get(
-            f"https://api.github.com/repos/{repo}/commits",
-            params={"per_page": "10"},
+            f"https://api.github.com/repos/{repo}/compare/{tag}...HEAD",
             timeout=10,
         )
         if resp.status_code != 200:
             return []
+        commits = resp.json().get("commits", [])
         changes = []
-        for commit in resp.json():
+        for commit in commits:
             msg = commit.get("commit", {}).get("message", "").split("\n")[0]
-            if msg and not msg.startswith("bump version"):
+            if msg and not msg.startswith("release:"):
                 changes.append(f"- {msg}")
                 if len(changes) >= max_changes:
                     break
@@ -121,7 +122,7 @@ def _fetch_recent_changes(source: str, max_changes: int = 5) -> list[str]:
 def get_update_summary(source: str, old_version: str) -> str:
     """Get version transition and changelog after a successful update."""
     new_version = _detect_new_version()
-    changes = _fetch_recent_changes(source)
+    changes = _fetch_recent_changes(source, old_version)
     parts = [f"{old_version} -> {new_version}"]
     if changes:
         parts.append("\nRecent changes:\n" + "\n".join(changes))
