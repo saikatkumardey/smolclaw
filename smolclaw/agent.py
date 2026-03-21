@@ -311,6 +311,50 @@ def _make_spawn_task_tool(chat_id: str, cfg: Config):
     return spawn_task
 
 
+def _make_delegate_tool(chat_id: str, cfg: Config):
+    """Build a synchronous delegate tool that runs a sub-agent and returns results inline."""
+    subagent_timeout = cfg.get("subagent_timeout")
+    subagent_max_turns = cfg.get("subagent_max_turns")
+
+    @tool(
+        "delegate",
+        (
+            "Run a sub-agent synchronously and return its result. "
+            "The sub-agent uses a faster, cheaper model (Sonnet) with full tool access. "
+            "Use for tasks that need multiple tool calls: research, file operations, "
+            "web searches, code changes. You get the result back and can reason about it."
+        ),
+        {"task": str},
+    )
+    async def delegate(args: dict) -> dict:
+        opts = ClaudeAgentOptions(
+            model="claude-sonnet-4-6",
+            allowed_tools=["Bash", "Read", "Write", "WebSearch", "WebFetch"],
+            permission_mode="acceptEdits",
+            max_turns=subagent_max_turns,
+            cwd=str(workspace.HOME),
+        )
+        parts: list[str] = []
+        try:
+            async with asyncio.timeout(subagent_timeout):
+                async for msg in query(prompt=args["task"], options=opts):
+                    if isinstance(msg, AssistantMessage):
+                        for block in msg.content:
+                            if isinstance(block, TextBlock):
+                                parts.append(block.text)
+        except TimeoutError:
+            parts.append(f"\n[delegate timed out after {subagent_timeout}s]")
+        except Exception as e:
+            parts.append(f"\n[delegate error: {e}]")
+        result = "\n".join(parts) or "(no output)"
+        # Truncate to avoid blowing up main agent context
+        if len(result) > 12000:
+            result = result[:12000] + "\n\n[truncated — full output was longer]"
+        return {"content": [{"type": "text", "text": result}]}
+
+    return delegate
+
+
 def _select_tools_for_chat(chat_id: str, cfg: Config) -> list:
     """Select the appropriate tool set based on chat_id type."""
     if chat_id.startswith("cron:subconscious"):
@@ -319,7 +363,8 @@ def _select_tools_for_chat(chat_id: str, cfg: Config) -> list:
     if chat_id.startswith("cron:"):
         return [*CUSTOM_TOOLS]
     spawn_task = _make_spawn_task_tool(chat_id, cfg)
-    return [*CUSTOM_TOOLS, spawn_task]
+    delegate = _make_delegate_tool(chat_id, cfg)
+    return [*CUSTOM_TOOLS, spawn_task, delegate]
 
 
 def _select_model(chat_id: str, cfg: Config) -> str:

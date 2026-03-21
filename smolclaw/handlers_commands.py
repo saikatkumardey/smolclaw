@@ -108,7 +108,7 @@ async def on_status(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         f"Workspace: {workspace.HOME}\n"
         f"Browser: {BrowserManager.get().backend}\n"
         f"Built-in tools: 5\n"
-        f"Custom SDK tools: {len(CUSTOM_TOOLS) + 1}\n"
+        f"Custom SDK tools: {len(CUSTOM_TOOLS) + 2}\n"
         f"Dynamic tools: {len(dynamic_tools)} ({dynamic_names})\n"
         f"Skills: {skill_count}\n"
         f"Memory: {memory_lines} lines"
