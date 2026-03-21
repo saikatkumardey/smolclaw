@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.7.9] - 2026-03-21
+
+- feat: add /streaming toggle for progressive Telegram response drafts
+
+
 ## [0.7.8] - 2026-03-21
 
 - chore: upgrade all dependencies
