@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Message debounce — collect rapid-fire messages before processing
 # ---------------------------------------------------------------------------
 
-_DEBOUNCE_SECONDS = 1.5  # wait this long after last message before processing
+_DEBOUNCE_SECONDS = 1.5  # default; overridden by config debounce_seconds
 
 # Per-chat debounce state: {chat_id: {"messages": [...], "task": asyncio.Task}}
 _debounce_buffers: dict[str, dict] = {}
@@ -450,7 +450,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         buf["task"].cancel()
 
     async def _flush():
-        await asyncio.sleep(_DEBOUNCE_SECONDS)
+        from .config import Config
+        delay = Config.load().get("debounce_seconds", _DEBOUNCE_SECONDS)
+        await asyncio.sleep(delay)
         pending = _debounce_buffers.pop(chat_id, None)
         if not pending or not pending["messages"]:
             return

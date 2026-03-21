@@ -25,6 +25,7 @@ class Config:
         "subconscious_interval_hours": 2,
         "subconscious_model": "claude-sonnet-4-6",
         "streaming": False,
+        "debounce_seconds": 1.5,
     }
 
     def __init__(self, data: dict | None = None) -> None:
