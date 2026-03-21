@@ -47,6 +47,22 @@ from .tools import MAX_TG_MSG
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Message debounce — collect rapid-fire messages before processing
+# ---------------------------------------------------------------------------
+
+_DEBOUNCE_SECONDS = 1.5  # wait this long after last message before processing
+
+# Per-chat debounce state: {chat_id: {"messages": [...], "task": asyncio.Task}}
+_debounce_buffers: dict[str, dict] = {}
+
+
+async def flush_debounce(chat_id: str) -> None:
+    """Wait for any pending debounce task to complete. Used by tests."""
+    buf = _debounce_buffers.get(chat_id)
+    if buf and buf["task"] and not buf["task"].done():
+        await buf["task"]
+
 
 def _to_telegram_md(text: str) -> str:
     """Convert CommonMark bold/italic to Telegram Markdown v1 format."""
@@ -409,7 +425,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     is_edit = update.edited_message is not None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
 
-    # Route to CC session if one is active
+    # Route to CC session if one is active (no debounce)
     from .claude_code import continue_session, has_active_session, is_session_busy
     if has_active_session(chat_id):
         if is_session_busy(chat_id):
@@ -419,8 +435,32 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if continued:
             return
 
-    agent_msg = f"[chat_id={chat_id} message_id={msg.message_id}]\n{text}"
-    await _run_agent_and_reply(context.bot, msg, chat_id, agent_msg, context_warn=True)
+    # Debounce: accumulate rapid messages, process after pause
+    buf = _debounce_buffers.get(chat_id)
+    if buf is None:
+        buf = {"messages": [], "task": None, "last_msg": msg, "bot": context.bot}
+        _debounce_buffers[chat_id] = buf
+
+    buf["messages"].append(text)
+    buf["last_msg"] = msg
+    buf["bot"] = context.bot
+
+    # Cancel previous debounce timer if still waiting
+    if buf["task"] is not None and not buf["task"].done():
+        buf["task"].cancel()
+
+    async def _flush():
+        await asyncio.sleep(_DEBOUNCE_SECONDS)
+        pending = _debounce_buffers.pop(chat_id, None)
+        if not pending or not pending["messages"]:
+            return
+        combined = "\n".join(pending["messages"])
+        last_msg = pending["last_msg"]
+        bot = pending["bot"]
+        agent_msg = f"[chat_id={chat_id} message_id={last_msg.message_id}]\n{combined}"
+        await _run_agent_and_reply(bot, last_msg, chat_id, agent_msg, context_warn=True)
+
+    buf["task"] = asyncio.create_task(_flush())
 
 
 def _extract_reaction_emojis(added: list) -> list[str]:

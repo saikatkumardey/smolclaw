@@ -10,6 +10,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+@pytest.fixture(autouse=True)
+def _no_debounce(monkeypatch):
+    """Zero debounce delay so tests don't wait."""
+    import smolclaw.handlers as _h
+    monkeypatch.setattr(_h, "_DEBOUNCE_SECONDS", 0)
+
+
 # ---------------------------------------------------------------------------
 # _to_telegram_md
 # ---------------------------------------------------------------------------
@@ -121,7 +128,9 @@ class TestOnMessage:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, return_value="Reply!"), \
              patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
-        # First reply_text sends "..." placeholder
+            from smolclaw.handlers import flush_debounce
+            await flush_debounce("123")
+        # First reply_text sends placeholder
         update.message.reply_text.assert_awaited()
         # Final reply edits the placeholder in place
         placeholder = update.message.reply_text.return_value
@@ -138,6 +147,8 @@ class TestOnMessage:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("boom")), \
              patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
+            from smolclaw.handlers import flush_debounce
+            await flush_debounce("123")
         update.message.reply_text.assert_awaited()
         # Error edits the placeholder instead of sending a new message
         placeholder = update.message.reply_text.return_value
@@ -234,6 +245,8 @@ class TestErrorClassification:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=TimeoutError()), \
              patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
+            from smolclaw.handlers import flush_debounce
+            await flush_debounce("123")
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "timed out" in msg.lower() or "timeout" in msg.lower()
@@ -247,6 +260,8 @@ class TestErrorClassification:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=PermissionError("denied")), \
              patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
+            from smolclaw.handlers import flush_debounce
+            await flush_debounce("123")
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "permission" in msg.lower()
@@ -260,6 +275,8 @@ class TestErrorClassification:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=ConnectionError("no network")), \
              patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
+            from smolclaw.handlers import flush_debounce
+            await flush_debounce("123")
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "connection" in msg.lower()
@@ -273,6 +290,8 @@ class TestErrorClassification:
         with patch("smolclaw.handlers.agent_run", new_callable=AsyncMock, side_effect=RuntimeError("wat")), \
              patch("smolclaw.handlers.get_streaming", return_value=False):
             await on_message(update, ctx)
+            from smolclaw.handlers import flush_debounce
+            await flush_debounce("123")
         placeholder = update.message.reply_text.return_value
         msg = placeholder.edit_text.await_args_list[-1][0][0]
         assert "wrong" in msg.lower()
