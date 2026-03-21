@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.6] - 2026-03-21
+
+- fix: show thinking bubble in streaming mode before first draft arrives
+
+
 ## [0.8.5] - 2026-03-21
 
 - feat: show thinking bubble instead of dots while waiting for response
