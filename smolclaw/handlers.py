@@ -117,13 +117,22 @@ class _TypingLoop:
                 pass
 
 
+def _strip_md(text: str) -> str:
+    """Remove Markdown formatting characters so the text is safe as plain text."""
+    return re.sub(r"[*_`\[\]]", "", text)
+
+
 async def _send_md_msg(target, text: str, *, edit: bool = False) -> None:
-    """Send/edit with Markdown, falling back to plain text on failure."""
+    """Send/edit with Markdown, falling back to stripped plain text on failure."""
     fn = target.edit_text if edit else target.reply_text
     try:
         await fn(text, parse_mode="Markdown")
     except Exception:
-        await fn(text)
+        # Markdown rejected — strip formatting and send plain text.
+        # For edit_text this is safe (same message). For reply_text the
+        # Telegram API guarantees the message was NOT delivered on error,
+        # so a second attempt won't duplicate.
+        await fn(_strip_md(text))
 
 
 async def _reply_chunked(message, text: str, edit_message=None) -> None:
