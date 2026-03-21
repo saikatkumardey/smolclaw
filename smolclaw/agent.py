@@ -109,10 +109,21 @@ async def reset_session(chat_id: str) -> None:
     """Disconnect and remove the cached session for chat_id."""
     session = _sessions.pop(chat_id, None)
     if session:
+        # Save transport reference before disconnect — needed for fallback subprocess termination
+        # if disconnect() fails due to anyio cancel-scope task affinity errors.
+        transport = getattr(session.client, '_transport', None)
         try:
             await session.client.disconnect()
         except Exception as e:
             logger.warning("Failed to disconnect session for {}: {}", chat_id, e)
+            # Fallback: directly terminate the underlying subprocess so it doesn't linger
+            proc = getattr(transport, '_process', None) if transport is not None else None
+            if proc is not None:
+                try:
+                    proc.terminate()
+                    logger.info("Force-terminated subprocess for session {}", chat_id)
+                except Exception as kill_e:
+                    logger.debug("Could not terminate subprocess for {}: {}", chat_id, kill_e)
     # Always clean up browser context, even if disconnect failed
     try:
         from .browser import BrowserManager
