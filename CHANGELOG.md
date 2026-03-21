@@ -2,6 +2,11 @@
 
 All notable changes to smolclaw will be documented in this file.
 
+## [0.8.2] - 2026-03-21
+
+- feat: add /stop command to interrupt turn and cancel all background tasks
+
+
 ## [0.8.1] - 2026-03-21
 
 - feat: add health score to doctor output
