@@ -124,7 +124,11 @@ class BrowserManager:
                         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                     ),
                 )
-            page = await context.new_page()
+            try:
+                page = await context.new_page()
+            except Exception:
+                await context.close()
+                raise
             self._contexts[chat_id] = context
             self._pages[chat_id] = page
             self._last_used[chat_id] = time.monotonic()
