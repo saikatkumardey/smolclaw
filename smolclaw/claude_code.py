@@ -17,8 +17,8 @@ _EDIT_INTERVAL = 2.0  # seconds between Telegram message edits
 _MAX_TG_MSG = 4000  # leave room for Telegram's 4096 limit
 _MAX_TURNS = 15
 
-# CC-specific slash commands (subset useful via Telegram)
-_CC_COMMANDS = {"compact", "cost", "context"}
+# Fallback CC commands if init event hasn't been received yet
+_DEFAULT_CC_COMMANDS = {"compact", "cost", "context"}
 
 
 @dataclass
@@ -50,6 +50,14 @@ def is_session_busy(chat_id: str) -> bool:
     return session is not None and session.process is not None
 
 
+def get_cc_commands(chat_id: str) -> set[str]:
+    """Get available CC slash commands for this session."""
+    session = _sessions.get(chat_id)
+    if session and session.slash_commands:
+        return set(session.slash_commands)
+    return _DEFAULT_CC_COMMANDS
+
+
 def get_session_info(chat_id: str) -> str | None:
     """Get session status summary for /cc with no args."""
     session = _sessions.get(chat_id)
@@ -66,8 +74,9 @@ def get_session_info(chat_id: str) -> str | None:
     parts.append("<b>Commands:</b>")
     parts.append("/cc &lt;prompt&gt; — send a message")
     parts.append("/cc stop — end session")
-    for cmd in sorted(_CC_COMMANDS):
-        parts.append(f"/cc {cmd} — /{cmd}")
+    cmds = get_cc_commands(chat_id)
+    for cmd in sorted(cmds):
+        parts.append(f"/cc {cmd}")
     return "\n".join(parts)
 
 

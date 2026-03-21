@@ -312,8 +312,8 @@ async def on_btw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /cc — start or interact with a live Claude Code session."""
     from .claude_code import (
-        _CC_COMMANDS,
         continue_session,
+        get_cc_commands,
         get_session_info,
         has_active_session,
         is_session_busy,
@@ -347,7 +347,7 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Forward CC slash commands (e.g. /cc compact → /compact)
     cmd = prompt.strip().split()[0].lower()
-    if cmd in _CC_COMMANDS and has_active_session(chat_id):
+    if cmd in get_cc_commands(chat_id) and has_active_session(chat_id):
         prompt = f"/{cmd}"
 
     if has_active_session(chat_id):
