@@ -71,8 +71,7 @@ def _format_content_block(block: dict) -> str | None:
     btype = block.get("type")
     if btype == "text":
         return _html_escape(block.get("text", ""))
-    if btype == "tool_use":
-        return _format_tool_hint(block)
+    # Skip tool_use blocks — too verbose for Telegram
     return None
 
 
