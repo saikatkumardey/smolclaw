@@ -1,302 +1,265 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmolClaw — Personal AI agent on Telegram</title>
-  <meta name="description" content="Self-hosted personal AI agent on Telegram, powered by Claude. Install in one command." />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmolClaw — Personal AI agent on Telegram</title>
+<meta name="description" content="Self-hosted personal AI agent on Telegram, powered by Claude. Install in one command.">
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #f97316;
+    --link: #58a6ff;
+    --code-bg: #1c2128;
+  }
 
-    body {
-      background: #fafaf9;
-      color: #1a1a1a;
-      font-family: 'Lora', Georgia, serif;
-      font-size: 17px;
-      line-height: 1.75;
-      padding: 0 1rem 4rem;
-      -webkit-text-size-adjust: 100%;
-    }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
 
-    .container {
-      max-width: 680px;
-      margin: 0 auto;
-      padding-top: 3rem;
-    }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
 
-    .hero {
-      margin-bottom: 3rem;
-    }
+  /* NAV */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+    background: rgba(13, 17, 23, 0.85);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-logo {
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .nav-logo span { color: var(--accent); }
+  .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+  .nav-links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--text); }
+  .nav-cta {
+    background: var(--accent) !important;
+    color: var(--bg) !important;
+    padding: 0.35rem 0.9rem;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.8rem !important;
+  }
 
-    .label {
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: #aaa;
-      margin-bottom: 1rem;
-    }
+  /* CONTENT */
+  .content {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 4rem;
+  }
 
-    h1 {
-      font-size: 2rem;
-      font-weight: 500;
-      line-height: 1.25;
-      letter-spacing: -0.02em;
-      margin-bottom: 0.6rem;
-    }
+  .content h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .content h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 2rem 0 0.75rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .content h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
+  }
+  .content p { margin: 0 0 1rem; }
+  .content a { color: var(--link); text-decoration: none; }
+  .content a:hover { text-decoration: underline; }
+  .content strong { font-weight: 600; }
 
-    .tagline {
-      font-size: 1.1rem;
-      color: #555;
-      line-height: 1.6;
-      margin-bottom: 2rem;
-    }
+  .content ul, .content ol {
+    padding-left: 2rem;
+    margin: 0 0 1rem;
+  }
+  .content li { margin: 0.25rem 0; }
+  .content li + li { margin-top: 0.25rem; }
 
-    .install-block {
-      background: #1a1a1a;
-      color: #e0e0e0;
-      border-radius: 8px;
-      padding: 1.2rem 1.5rem;
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.85rem;
-      line-height: 1.6;
-      overflow-x: auto;
-      margin-bottom: 0.6rem;
-      position: relative;
-    }
+  .content code {
+    background: var(--code-bg);
+    padding: 0.2em 0.4em;
+    border-radius: 6px;
+    font-size: 0.85em;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  .content pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 0 0 1rem;
+    line-height: 1.5;
+  }
+  .content pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.85rem;
+  }
 
-    .install-block code {
-      color: #e0e0e0;
-    }
+  .content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 1rem;
+  }
+  .content th, .content td {
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+  }
+  .content th {
+    background: var(--surface);
+    font-weight: 600;
+  }
 
-    .install-alt {
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 13px;
-      color: #999;
-      margin-bottom: 2.5rem;
-    }
+  .content blockquote {
+    border-left: 4px solid var(--border);
+    padding: 0 1rem;
+    color: var(--muted);
+    margin: 0 0 1rem;
+  }
 
-    .install-alt code {
-      font-size: 0.85em;
-      background: #f0efed;
-      padding: 0.15em 0.4em;
-      border-radius: 3px;
-      color: #1a1a1a;
-    }
+  .content hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.5rem 0;
+  }
 
-    .github-link {
-      display: inline-block;
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 14px;
-      font-weight: 500;
-      color: #1a1a1a;
-      text-decoration: none;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 0.5rem 1.2rem;
-      margin-bottom: 3rem;
-      transition: border-color 0.15s;
-    }
-    .github-link:hover { border-color: #999; }
+  .content details {
+    margin: 0 0 1rem;
+  }
+  .content summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
 
-    hr {
-      border: none;
-      border-top: 1px solid #e0ddd9;
-      margin: 2.5rem 0;
-    }
+  .content img {
+    max-width: 100%;
+    height: auto;
+  }
 
-    .prose h2 {
-      font-size: 1.1rem;
-      font-weight: 500;
-      margin: 2.5em 0 0.7em;
-      letter-spacing: -0.01em;
-    }
+  .content p:has(> a > img) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
 
-    .prose p {
-      margin-bottom: 1.4em;
-    }
+  /* Loading state */
+  .loading {
+    text-align: center;
+    padding: 4rem;
+    color: var(--muted);
+  }
+  .loading::after {
+    content: '';
+    display: inline-block;
+    width: 1.2rem;
+    height: 1.2rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-    .prose a {
-      color: inherit;
-      text-decoration: underline;
-      text-underline-offset: 3px;
-      text-decoration-color: #ccc;
-    }
-    .prose a:hover { text-decoration-color: #888; }
+  /* FOOTER */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
 
-    .prose code {
-      font-size: 0.82em;
-      background: #f0efed;
-      padding: 0.15em 0.4em;
-      border-radius: 3px;
-    }
-
-    .prose pre {
-      background: #f0efed;
-      border-radius: 6px;
-      padding: 1rem 1.2rem;
-      overflow-x: auto;
-      margin-bottom: 1.5em;
-      font-size: 0.82em;
-      line-height: 1.7;
-    }
-
-    .prose pre code {
-      background: none;
-      padding: 0;
-    }
-
-    .commands-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 1.5em;
-      font-size: 0.92em;
-    }
-
-    .commands-table td {
-      padding: 0.4rem 0;
-      border-bottom: 1px solid #f0efed;
-      vertical-align: top;
-    }
-
-    .commands-table td:first-child {
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.85em;
-      color: #555;
-      white-space: nowrap;
-      padding-right: 1.5rem;
-      width: 1%;
-    }
-
-    .workspace-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 1.5em;
-      font-size: 0.92em;
-    }
-
-    .workspace-table td {
-      padding: 0.35rem 0;
-      border-bottom: 1px solid #f0efed;
-      vertical-align: top;
-    }
-
-    .workspace-table td:first-child {
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.85em;
-      color: #555;
-      white-space: nowrap;
-      padding-right: 1.5rem;
-      width: 1%;
-    }
-
-    .footer {
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 13px;
-      color: #bbb;
-      margin-top: 3rem;
-      letter-spacing: 0.02em;
-    }
-
-    @media (min-width: 640px) {
-      body {
-        font-size: 19px;
-        line-height: 1.8;
-        padding: 0 1.5rem 5rem;
-      }
-      .container { padding-top: 4rem; }
-      h1 { font-size: 2.5rem; }
-      .tagline { font-size: 1.15rem; }
-      .prose h2 { font-size: 1.15rem; margin: 2.8em 0 0.8em; }
-      .prose p { margin-bottom: 1.5em; }
-      hr { margin: 3rem 0; }
-      .footer { margin-top: 4rem; }
-    }
-  </style>
+  @media (max-width: 768px) {
+    .nav-links a:not(.nav-cta) { display: none; }
+    .content { padding: 1.5rem 1rem 3rem; }
+  }
+</style>
 </head>
 <body>
 
-<div class="container">
-
-  <div class="hero">
-    <p class="label">Open Source</p>
-    <h1>SmolClaw</h1>
-    <p class="tagline">Personal AI agent on Telegram. Self-hosted, powered by Claude. Everything lives in text files you can read, grep, and version-control.</p>
-
-    <div class="install-block">
-      <code>curl -fsSL https://raw.githubusercontent.com/saikatkumardey/smolclaw/main/install.sh | bash</code>
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-logo"><span>&#9679;</span> smolclaw</a>
+    <div class="nav-links">
+      <a href="https://pypi.org/project/smolclaw/">PyPI</a>
+      <a href="https://github.com/saikatkumardey/smolclaw" class="nav-cta">GitHub</a>
     </div>
-    <p class="install-alt">Or: <code>pip install uv</code> then <code>uv tool install git+https://github.com/saikatkumardey/smolclaw</code></p>
-
-    <a class="github-link" href="https://github.com/saikatkumardey/smolclaw">View on GitHub &rarr;</a>
   </div>
+</nav>
 
-  <hr />
-
-  <div class="prose">
-
-    <h2>Setup</h2>
-    <p>After installing, run <code>smolclaw setup</code>. It asks for your Telegram bot token, user ID, and Claude auth. Get a bot token from <a href="https://t.me/BotFather">@BotFather</a> and your user ID from <a href="https://t.me/userinfobot">@userinfobot</a>.</p>
-    <p>On Linux with systemd, setup installs and starts the service automatically.</p>
-
-    <h2>Usage</h2>
-    <pre><code>smolclaw start       # background daemon
-smolclaw start -f    # foreground
-smolclaw chat        # interactive TUI (no Telegram needed)
-smolclaw logs -f     # stream logs
-smolclaw stop
-smolclaw restart</code></pre>
-    <p><code>smolclaw chat</code> launches a terminal UI for chatting directly with your agent&mdash;useful for testing, debugging, or when you don't want to go through Telegram.</p>
-
-    <h2>Telegram commands</h2>
-    <table class="commands-table">
-      <tr><td>/status</td><td>Model, tools, token usage</td></tr>
-      <tr><td>/models</td><td>Switch Claude model</td></tr>
-      <tr><td>/effort</td><td>Switch thinking effort</td></tr>
-      <tr><td>/reset</td><td>Clear conversation history</td></tr>
-      <tr><td>/cancel</td><td>Cancel running task</td></tr>
-      <tr><td>/restart</td><td>Restart the bot</td></tr>
-      <tr><td>/update</td><td>Pull latest and restart</td></tr>
-      <tr><td>/cc &lt;prompt&gt;</td><td>Live Claude Code session (streaming)</td></tr>
-      <tr><td>/context</td><td>Context window usage</td></tr>
-    </table>
-
-    <h2>Workspace</h2>
-    <p>Everything lives in <code>~/.smolclaw/</code>:</p>
-    <table class="workspace-table">
-      <tr><td>SOUL.md</td><td>Agent identity and instructions</td></tr>
-      <tr><td>USER.md</td><td>Your profile&mdash;name, timezone, preferences</td></tr>
-      <tr><td>MEMORY.md</td><td>Persistent memory across sessions</td></tr>
-      <tr><td>crons.yaml</td><td>Scheduled jobs</td></tr>
-      <tr><td>skills/*/SKILL.md</td><td>Skill docs injected into system prompt</td></tr>
-      <tr><td>tools/*.py</td><td>Custom tools&mdash;hot-loaded, no restart needed</td></tr>
-      <tr><td>sessions/*.jsonl</td><td>Conversation logs</td></tr>
-      <tr><td>handover.md</td><td>State snapshot across restarts</td></tr>
-      <tr><td>subconscious.yaml</td><td>Background reflection threads</td></tr>
-    </table>
-
-    <h2>Subconscious</h2>
-    <p>A background reflection loop that runs every 2 hours. The agent reviews open threads, recent conversations, and memory&mdash;then decides whether to act (send a message, spawn a task) or stay quiet. Threads are tracked in <code>subconscious.yaml</code>.</p>
-
-    <h2>Custom tools</h2>
-    <p>Drop a <code>.py</code> file in <code>~/.smolclaw/tools/</code> with a <code>SCHEMA</code> dict and <code>execute()</code> function. Available on the next message, no restart needed.</p>
-
-    <h2>Update</h2>
-    <pre><code>smolclaw update       # from terminal
-/update               # from Telegram</code></pre>
-    <p>Saves a handover note before restarting and picks up where it left off.</p>
-
-  </div>
-
-  <hr />
-
-  <p class="footer">MIT License &middot; <a href="https://github.com/saikatkumardey/smolclaw" style="color: inherit;">github.com/saikatkumardey/smolclaw</a></p>
-
+<div class="content">
+  <div class="loading" id="loading">Loading</div>
 </div>
+
+<footer>
+  <p>Built by <a href="https://github.com/saikatkumardey">Saikat Kumar Dey</a>. MIT License.</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const README_URL = 'https://raw.githubusercontent.com/saikatkumardey/smolclaw/main/README.md';
+
+const renderer = new marked.Renderer();
+renderer.heading = function({tokens, depth}) {
+  const text = this.parser.parseInline(tokens);
+  const raw = tokens.map(t => t.raw || t.text || '').join('');
+  const id = raw.toLowerCase().replace(/[^\w]+/g, '-').replace(/(^-|-$)/g, '');
+  return `<h${depth} id="${id}">${text}</h${depth}>`;
+};
+marked.use({renderer});
+
+async function loadReadme() {
+  const container = document.querySelector('.content');
+  try {
+    const res = await fetch(README_URL);
+    if (!res.ok) throw new Error(res.status);
+    const md = await res.text();
+    container.innerHTML = marked.parse(md);
+  } catch (e) {
+    container.innerHTML =
+      '<p style="text-align:center;color:var(--muted);padding:4rem 0;">' +
+      'Could not load README. <a href="https://github.com/saikatkumardey/smolclaw">View on GitHub</a></p>';
+  }
+}
+loadReadme();
+</script>
 
 </body>
 </html>
