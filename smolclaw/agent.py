@@ -117,11 +117,19 @@ async def reset_session(chat_id: str) -> None:
     session = _sessions.pop(chat_id, None)
     if session:
         transport = getattr(session.client, '_transport', None)
-        try:
-            await session.client.disconnect()
-        except Exception as e:
-            logger.warning("Failed to disconnect session for {}: {}", chat_id, e)
-            _force_terminate_transport(transport)
+        # ClaudeSDKClient.disconnect() calls query.close() which exits an anyio TaskGroup
+        # cancel scope. That scope is bound to the asyncio task that called connect(), so
+        # calling disconnect() cross-task raises "Attempted to exit cancel scope in a
+        # different task than it was entered in" (documented SDK limitation, v0.0.20).
+        # Fix: cancel the scope directly (safe cross-task — just sets a flag) and
+        # force-terminate the subprocess, bypassing the broken tg.__aexit__() path.
+        query = getattr(session.client, '_query', None)
+        if query is not None:
+            tg = getattr(query, '_tg', None)
+            if tg is not None:
+                tg.cancel_scope.cancel()
+            query._closed = True
+        _force_terminate_transport(transport)
     try:
         from .browser import BrowserManager
         await BrowserManager.get().close_session(chat_id)

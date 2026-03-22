@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from claude_agent_sdk import tool
@@ -25,6 +26,7 @@ from .version import get_update_summary as _get_update_summary
 from .version import local_version as _local_version
 
 _ALLOWED_SOURCE_PREFIX = "git+https://github.com/saikatkumardey/smolclaw"
+_PROCESS_START_TIME = time.monotonic()
 
 
 def _text(t: str) -> dict:
@@ -76,9 +78,18 @@ async def save_handover(args: dict) -> dict:
     return _text("Handover saved.")
 
 
+_MIN_UPTIME_BEFORE_RESTART = 120  # seconds
+
+
 @tool("self_restart", "Restart the smolclaw process in-place. Always call save_handover first.", {})
 async def self_restart(args: dict) -> dict:
     import signal
+    uptime = time.monotonic() - _PROCESS_START_TIME
+    if uptime < _MIN_UPTIME_BEFORE_RESTART:
+        return _text(
+            f"Restart blocked: process only started {uptime:.0f}s ago (minimum {_MIN_UPTIME_BEFORE_RESTART}s). "
+            "Wait longer before restarting to avoid a restart loop."
+        )
     if chat_id := default_chat_id():
         await asyncio.to_thread(_send_telegram, chat_id, "Restarting…")
     os.kill(os.getpid(), signal.SIGTERM)
