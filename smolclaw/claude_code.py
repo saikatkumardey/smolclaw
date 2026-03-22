@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _CLAUDE_BIN = shutil.which("claude") or "claude"
 _EDIT_INTERVAL = 2.0  # seconds between Telegram message edits
+_TYPING_INTERVAL = 4.0  # seconds between "typing…" chat actions
 _MAX_TG_MSG = 4000  # leave room for Telegram's 4096 limit
 _MAX_TURNS = 15
 
@@ -36,6 +38,9 @@ class CCSession:
     model: str = ""
     total_cost: float = 0.0
     turns: int = 0
+    started_at: float = field(default_factory=time.monotonic)
+    prompt: str = ""
+    last_typing: float = 0.0
 
 
 _sessions: dict[str, CCSession] = {}
@@ -58,18 +63,30 @@ def get_cc_commands(chat_id: str) -> set[str]:
     return _DEFAULT_CC_COMMANDS
 
 
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as a compact human string."""
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+    return f"{minutes}m{secs:02d}s"
+
+
 def get_session_info(chat_id: str) -> str | None:
     """Get session status summary for /cc with no args."""
     session = _sessions.get(chat_id)
     if not session:
         return None
     busy = "working" if session.process else "idle"
-    parts = [f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n\n<b>CC session</b> ({busy})"]
+    elapsed = _format_elapsed(time.monotonic() - session.started_at)
+    parts = [f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n\n<b>Session</b> ({busy}) · {elapsed}"]
     if session.model:
         parts.append(f"Model: {session.model}")
     if session.total_cost > 0:
         parts.append(f"Cost: ${session.total_cost:.3f}")
     parts.append(f"Turns: {session.turns}")
+    if session.tool_status and session.process:
+        parts.append(f"\n{session.tool_status}")
     parts.append("")
     parts.append("<b>Commands:</b>")
     parts.append("/cc &lt;prompt&gt; — send a message")
@@ -78,6 +95,20 @@ def get_session_info(chat_id: str) -> str | None:
     for cmd in sorted(cmds):
         parts.append(f"/cc {cmd}")
     return "\n".join(parts)
+
+
+def get_stop_summary(chat_id: str) -> str:
+    """Build a summary message for when a session is stopped."""
+    session = _sessions.get(chat_id)
+    if not session:
+        return "Session ended."
+    elapsed = _format_elapsed(time.monotonic() - session.started_at)
+    parts = [f"Session ended · {elapsed}"]
+    if session.total_cost > 0:
+        parts.append(f"${session.total_cost:.3f}")
+    if session.turns > 0:
+        parts.append(f"{session.turns} turns")
+    return " · ".join(parts)
 
 
 def _html_escape(text: str) -> str:
@@ -90,20 +121,29 @@ def _html_escape(text: str) -> str:
 
 def _md_to_tg_html(text: str) -> str:
     """Convert CommonMark markdown (already HTML-escaped) to Telegram HTML tags."""
-    import re
-
-    # Code fences → <code> (must come before inline transforms)
-    text = re.sub(r"```(?:\w*)\n(.*?)```", r"<code>\1</code>", text, flags=re.DOTALL)
+    # Code fences → <pre><code> (must come before inline transforms)
+    text = re.sub(
+        r"```(\w*)\n(.*?)```",
+        lambda m: f"<pre><code class=\"language-{m.group(1)}\">{m.group(2)}</code></pre>"
+        if m.group(1)
+        else f"<pre>{m.group(2)}</pre>",
+        text,
+        flags=re.DOTALL,
+    )
     # Inline code
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     # Bold: **text** → <b>text</b>
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-    # Italic: *text* or _text_ → <i>text</i>  (but not inside words for _)
+    # Italic: *text* (but not inside words or after bold)
     text = re.sub(r"(?<!\w)\*([^*]+?)\*(?!\w)", r"<i>\1</i>", text)
     # Headers → bold
     text = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
-    # Bullet lists: leading "- " → "• "
+    # Links: [text](url) → <a href="url">text</a>
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+    # Bullet lists: leading "- " or "* " → "• "
     text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
+    # Numbered lists: "1. " → "1. " (keep but normalize indentation)
+    text = re.sub(r"^(\d+)\.\s+", r"\1. ", text, flags=re.MULTILINE)
     return text
 
 
@@ -118,6 +158,11 @@ def _tool_status_line(block: dict) -> str:
         "Edit": lambda: inp.get("file_path", "").split("/")[-1],
         "Glob": lambda: inp.get("pattern", ""),
         "Grep": lambda: inp.get("pattern", ""),
+        "Agent": lambda: inp.get("description", inp.get("prompt", "")[:40]),
+        "WebFetch": lambda: inp.get("url", "")[:50],
+        "WebSearch": lambda: inp.get("query", "")[:50],
+        "TodoWrite": lambda: "updating tasks",
+        "NotebookEdit": lambda: inp.get("file_path", "").split("/")[-1],
     }
     hint = hint_map.get(name, lambda: "")()
     if hint:
@@ -171,12 +216,18 @@ def _format_event(event: dict, session: CCSession) -> str:
 
 
 _CC_HEADER = "🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n"
-_CC_FOOTER_ACTIVE = "\n\n<i>/cc session — send message or /cc stop</i>"
+
+
+def _build_footer(session: CCSession, done: bool) -> str:
+    if done:
+        return ""
+    elapsed = _format_elapsed(time.monotonic() - session.started_at)
+    return f"\n\n<i>⏱ {elapsed} · /cc stop</i>"
 
 
 def _build_display(session: CCSession, done: bool = False) -> str:
     """Build the message text from buffer + tool status + footer."""
-    footer = "" if done else _CC_FOOTER_ACTIVE
+    footer = _build_footer(session, done)
     status_line = ""
     if session.tool_status and not done:
         status_line = f"\n\n<i>{_html_escape(session.tool_status)}</i>"
@@ -191,9 +242,22 @@ def _build_display(session: CCSession, done: bool = False) -> str:
 
 def _strip_html(text: str) -> str:
     from html import unescape
-    for tag in ("b", "i", "code"):
-        text = text.replace(f"<{tag}>", "").replace(f"</{tag}>", "")
+    for tag in ("b", "i", "code", "pre", "a"):
+        text = re.sub(rf"<{tag}[^>]*>", "", text)
+        text = text.replace(f"</{tag}>", "")
     return unescape(text)
+
+
+async def _send_typing(session: CCSession, bot) -> None:
+    """Send typing indicator if enough time has passed."""
+    now = time.monotonic()
+    if now - session.last_typing < _TYPING_INTERVAL:
+        return
+    try:
+        await bot.send_chat_action(chat_id=session.chat_id, action="typing")
+        session.last_typing = now
+    except Exception:
+        logger.debug("typing indicator failed")
 
 
 async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
@@ -253,7 +317,7 @@ async def _maybe_split_message(session: CCSession, bot) -> None:
                 text=_strip_html(text),
             )
         except Exception:
-            pass
+            logger.debug("split fallback edit failed")
 
     msg = await bot.send_message(chat_id=session.chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n…")
     session.output_msg_id = msg.message_id
@@ -285,6 +349,7 @@ async def _stream_loop(session: CCSession, bot) -> None:
             if formatted:
                 session.buffer += formatted
                 await _maybe_split_message(session, bot)
+            await _send_typing(session, bot)
             await _edit_output(session, bot)
 
         stderr_text = ""
@@ -296,7 +361,7 @@ async def _stream_loop(session: CCSession, bot) -> None:
                 logger.debug("Failed to read stderr", exc_info=True)
 
         if not session.buffer.strip() and stderr_text:
-            session.buffer = f"⚠️ error:\n<code>{_html_escape(stderr_text[:500])}</code>"
+            session.buffer = f"⚠️ error:\n<pre>{_html_escape(stderr_text[:500])}</pre>"
         elif not session.buffer.strip():
             session.buffer = "✅ done (no output)"
 
@@ -344,11 +409,17 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
         await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\nSession already running. Send /cc stop first.")
         return
 
-    msg = await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\nstarting…")
+    truncated = prompt[:80] + "…" if len(prompt) > 80 else prompt
+    msg = await bot.send_message(
+        chat_id=chat_id,
+        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>{_html_escape(truncated)}</i>\n\nstarting…",
+        parse_mode="HTML",
+    )
     session = CCSession(
         chat_id=chat_id,
         output_msg_id=msg.message_id,
         working_dir=working_dir or str(workspace.HOME),
+        prompt=prompt,
     )
     old = _sessions.get(chat_id)
     if old and old.session_id:
@@ -357,7 +428,11 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
     try:
         session.process = await _spawn_proc(session, prompt)
     except Exception as e:
-        await bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"Failed to start CC: {e}")
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=msg.message_id,
+            text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n⚠️ Failed to start: {_html_escape(str(e))}",
+            parse_mode="HTML",
+        )
         return
 
     _sessions[chat_id] = session
@@ -378,7 +453,11 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     try:
         session.process = await _spawn_proc(session, prompt)
     except Exception as e:
-        await bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=f"CC continue failed: {e}")
+        await bot.edit_message_text(
+            chat_id=chat_id, message_id=msg.message_id,
+            text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n⚠️ Failed: {_html_escape(str(e))}",
+            parse_mode="HTML",
+        )
         return False
 
     session.task = asyncio.create_task(_stream_loop(session, bot))

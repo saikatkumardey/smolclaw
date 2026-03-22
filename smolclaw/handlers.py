@@ -315,6 +315,7 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         continue_session,
         get_cc_commands,
         get_session_info,
+        get_stop_summary,
         has_active_session,
         is_session_busy,
         start_session,
@@ -327,8 +328,9 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     prompt = parts[1] if len(parts) > 1 else ""
 
     if prompt.strip().lower() == "stop":
+        summary = get_stop_summary(chat_id)
         stopped = await stop_session(chat_id)
-        await msg.reply_text("💻 Session ended." if stopped else "No active CC session.")
+        await msg.reply_text(f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n{summary}" if stopped else "No active CC session.")
         return
 
     if not prompt.strip():
