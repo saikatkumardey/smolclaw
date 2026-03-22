@@ -80,7 +80,9 @@ async def test_dynamic_tool_change_triggers_reconnect(tmp_path, monkeypatch):
          patch("smolclaw.agent._make_options", return_value=MagicMock()):
         try:
             result = await ag.run(chat_id="reconnect-test", user_message="hi")
-            old_client.disconnect.assert_awaited_once()
+            # reset_session no longer calls disconnect() — it cancels the anyio scope
+            # directly and force-terminates the subprocess to avoid cross-task errors.
+            old_client.disconnect.assert_not_awaited()
             new_client.connect.assert_awaited_once()
             assert isinstance(result, str)
         finally:
