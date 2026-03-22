@@ -64,7 +64,7 @@ def get_session_info(chat_id: str) -> str | None:
     if not session:
         return None
     busy = "working" if session.process else "idle"
-    parts = [f"<b>💻 CC session</b> ({busy})"]
+    parts = [f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n\n<b>CC session</b> ({busy})"]
     if session.model:
         parts.append(f"Model: {session.model}")
     if session.total_cost > 0:
@@ -110,9 +110,13 @@ def _format_event(event: dict, session: CCSession) -> str:
     etype = event.get("type", "")
 
     if etype == "system":
-        # Capture metadata from init event
+        # Capture metadata from init event, filter out internal/plugin commands
         if event.get("slash_commands"):
-            session.slash_commands = event["slash_commands"]
+            _skip = {"heapdump", "init", "debug", "batch", "loop"}
+            session.slash_commands = [
+                c for c in event["slash_commands"]
+                if ":" not in c and c not in _skip
+            ]
         if event.get("model"):
             session.model = event["model"]
         return ""
@@ -147,8 +151,8 @@ def _format_event(event: dict, session: CCSession) -> str:
     return ""
 
 
-_CC_HEADER = "💻 "
-_CC_FOOTER_ACTIVE = "\n\n<i>💻 /cc session — send message or /cc stop</i>"
+_CC_HEADER = "🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n"
+_CC_FOOTER_ACTIVE = "\n\n<i>/cc session — send message or /cc stop</i>"
 
 
 def _build_display(session: CCSession, done: bool = False) -> str:
@@ -232,7 +236,7 @@ async def _maybe_split_message(session: CCSession, bot) -> None:
         except Exception:
             pass
 
-    msg = await bot.send_message(chat_id=session.chat_id, text="💻 …")
+    msg = await bot.send_message(chat_id=session.chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n…")
     session.output_msg_id = msg.message_id
     session.buffer = ""
     session.last_edit = 0.0
@@ -318,10 +322,10 @@ async def _spawn_proc(session: CCSession, prompt: str) -> asyncio.subprocess.Pro
 
 async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None = None) -> None:
     if chat_id in _sessions and _sessions[chat_id].process is not None:
-        await bot.send_message(chat_id=chat_id, text="💻 Session already running. Send /cc stop first.")
+        await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\nSession already running. Send /cc stop first.")
         return
 
-    msg = await bot.send_message(chat_id=chat_id, text="💻 starting…")
+    msg = await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\nstarting…")
     session = CCSession(
         chat_id=chat_id,
         output_msg_id=msg.message_id,
@@ -346,7 +350,7 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     if not session or session.process is not None or not session.session_id:
         return False
 
-    msg = await bot.send_message(chat_id=chat_id, text="💻 …")
+    msg = await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n…")
     session.output_msg_id = msg.message_id
     session.buffer = ""
     session.last_edit = 0.0
