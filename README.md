@@ -1,6 +1,6 @@
 # SmolClaw
 
-[![python-doctor](https://img.shields.io/badge/python--doctor-93%2F100-brightgreen)](https://github.com/saikatkumardey/python-doctor)
+[![python-doctor](https://img.shields.io/badge/python--doctor-94%2F100-brightgreen)](https://github.com/saikatkumardey/python-doctor)
 
 Personal AI agent on Telegram. Self-hosted, powered by Claude.
 
