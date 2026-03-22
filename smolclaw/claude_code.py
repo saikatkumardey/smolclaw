@@ -41,6 +41,10 @@ class CCSession:
     started_at: float = field(default_factory=time.monotonic)
     prompt: str = ""
     last_typing: float = 0.0
+    tools_used: int = 0
+    tool_log: list[str] = field(default_factory=list)
+    pending_queue: list[str] = field(default_factory=list)
+    html_broken: bool = False  # set when HTML parse fails, avoids flicker
 
 
 _sessions: dict[str, CCSession] = {}
@@ -53,6 +57,25 @@ def has_active_session(chat_id: str) -> bool:
 def is_session_busy(chat_id: str) -> bool:
     session = _sessions.get(chat_id)
     return session is not None and session.process is not None
+
+
+def get_busy_hint(chat_id: str) -> str:
+    """Get a user-facing hint about what CC is currently doing."""
+    session = _sessions.get(chat_id)
+    if not session or not session.process:
+        return ""
+    if session.tool_status:
+        return session.tool_status
+    return "thinking…"
+
+
+def queue_message(chat_id: str, text: str) -> bool:
+    """Queue a message for when the current turn finishes. Returns True if queued."""
+    session = _sessions.get(chat_id)
+    if not session or session.process is None:
+        return False
+    session.pending_queue.append(text)
+    return True
 
 
 def get_cc_commands(chat_id: str) -> set[str]:
@@ -81,19 +104,32 @@ def get_session_info(chat_id: str) -> str | None:
     elapsed = _format_elapsed(time.monotonic() - session.started_at)
     parts = [f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n\n<b>Session</b> ({busy}) · {elapsed}"]
     if session.model:
-        parts.append(f"Model: {session.model}")
+        model = session.model
+        for prefix in ("claude-", "anthropic/"):
+            model = model.removeprefix(prefix)
+        parts.append(f"Model: {model}")
+    stats = []
     if session.total_cost > 0:
-        parts.append(f"Cost: ${session.total_cost:.3f}")
-    parts.append(f"Turns: {session.turns}")
+        stats.append(f"${session.total_cost:.3f}")
+    stats.append(f"{session.turns} turns")
+    if session.tools_used > 0:
+        stats.append(f"{session.tools_used} tool calls")
+    parts.append(" · ".join(stats))
     if session.tool_status and session.process:
         parts.append(f"\n{session.tool_status}")
+    if session.tool_log:
+        recent = session.tool_log[-5:]
+        parts.append("")
+        parts.append("<b>Recent:</b>")
+        for entry in recent:
+            parts.append(f"  {_html_escape(entry)}")
+    if session.pending_queue:
+        parts.append(f"\n📨 {len(session.pending_queue)} queued message(s)")
     parts.append("")
-    parts.append("<b>Commands:</b>")
-    parts.append("/cc &lt;prompt&gt; — send a message")
-    parts.append("/cc stop — end session")
-    cmds = get_cc_commands(chat_id)
-    for cmd in sorted(cmds):
-        parts.append(f"/cc {cmd}")
+    parts.append("/cc &lt;msg&gt;  ·  /cc stop")
+    cmds = sorted(get_cc_commands(chat_id) - {"compact", "cost", "context"})
+    if cmds:
+        parts.append("/cc " + "  /cc ".join(cmds))
     return "\n".join(parts)
 
 
@@ -140,6 +176,15 @@ def _md_to_tg_html(text: str) -> str:
     text = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
     # Links: [text](url) → <a href="url">text</a>
     text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+    # Strikethrough: ~~text~~ → <s>text</s>
+    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
+    # Blockquotes: "> text" → Telegram <blockquote>
+    text = re.sub(
+        r"(^&gt;\s?.+(?:\n&gt;\s?.+)*)",
+        lambda m: "<blockquote>" + re.sub(r"^&gt;\s?", "", m.group(0), flags=re.MULTILINE) + "</blockquote>",
+        text,
+        flags=re.MULTILINE,
+    )
     # Bullet lists: leading "- " or "* " → "• "
     text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
     # Numbered lists: "1. " → "1. " (keep but normalize indentation)
@@ -186,8 +231,10 @@ def _format_event(event: dict, session: CCSession) -> str:
         return ""
 
     if etype == "assistant":
-        session.turns += 1
         blocks = event.get("message", {}).get("content", [])
+        has_text = any(b.get("type") == "text" and b.get("text") for b in blocks)
+        if has_text:
+            session.turns += 1
         text_parts = []
         for b in blocks:
             if b.get("type") == "tool_use":
@@ -236,13 +283,14 @@ def _build_display(session: CCSession, done: bool = False) -> str:
     max_body = _MAX_TG_MSG - overhead
     buf = session.buffer
     if len(buf) > max_body:
-        buf = "…\n" + buf[-(max_body - 5):]
+        # Strip HTML before truncating to avoid breaking mid-tag
+        buf = "…\n" + _strip_html(buf)[-(max_body - 5):]
     return _CC_HEADER + buf + status_line + footer
 
 
 def _strip_html(text: str) -> str:
     from html import unescape
-    for tag in ("b", "i", "code", "pre", "a"):
+    for tag in ("b", "i", "code", "pre", "a", "s", "blockquote"):
         text = re.sub(rf"<{tag}[^>]*>", "", text)
         text = text.replace(f"</{tag}>", "")
     return unescape(text)
@@ -270,12 +318,28 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
         return
 
     text = _build_display(session, done=final)
+    # If HTML previously broke on this message, stay plain to avoid flicker
+    if session.html_broken:
+        try:
+            await bot.edit_message_text(
+                chat_id=session.chat_id,
+                message_id=session.output_msg_id,
+                text=_strip_html(text),
+                disable_web_page_preview=True,
+            )
+            session.last_edit = now
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                logger.debug("CC plain edit failed: %s", e)
+        return
+
     try:
         await bot.edit_message_text(
             chat_id=session.chat_id,
             message_id=session.output_msg_id,
             text=text,
             parse_mode="HTML",
+            disable_web_page_preview=True,
         )
         session.last_edit = now
     except Exception as e:
@@ -285,11 +349,13 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
         if "parse" not in err and "can't" not in err:
             logger.debug("CC edit failed: %s", e)
             return
+        session.html_broken = True
         try:
             await bot.edit_message_text(
                 chat_id=session.chat_id,
                 message_id=session.output_msg_id,
                 text=_strip_html(text),
+                disable_web_page_preview=True,
             )
             session.last_edit = now
         except Exception:
@@ -308,6 +374,7 @@ async def _maybe_split_message(session: CCSession, bot) -> None:
             message_id=session.output_msg_id,
             text=text,
             parse_mode="HTML",
+            disable_web_page_preview=True,
         )
     except Exception:
         try:
@@ -315,14 +382,20 @@ async def _maybe_split_message(session: CCSession, bot) -> None:
                 chat_id=session.chat_id,
                 message_id=session.output_msg_id,
                 text=_strip_html(text),
+                disable_web_page_preview=True,
             )
         except Exception:
             logger.debug("split fallback edit failed")
 
-    msg = await bot.send_message(chat_id=session.chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n…")
+    msg = await bot.send_message(
+        chat_id=session.chat_id,
+        text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>continued…</i>",
+        parse_mode="HTML",
+    )
     session.output_msg_id = msg.message_id
     session.buffer = ""
     session.last_edit = 0.0
+    session.html_broken = False
 
 
 async def _stream_loop(session: CCSession, bot) -> None:
@@ -360,18 +433,72 @@ async def _stream_loop(session: CCSession, bot) -> None:
             except Exception:
                 logger.debug("Failed to read stderr", exc_info=True)
 
+        exit_code = proc.returncode
         if not session.buffer.strip() and stderr_text:
             session.buffer = f"⚠️ error:\n<pre>{_html_escape(stderr_text[:500])}</pre>"
+        elif not session.buffer.strip() and exit_code:
+            session.buffer = f"⚠️ exited with code {exit_code}"
         elif not session.buffer.strip():
             session.buffer = "✅ done (no output)"
+        elif exit_code and exit_code != 0:
+            session.buffer += f"\n\n⚠️ exit code {exit_code}"
 
         await _edit_output(session, bot, final=True)
     except asyncio.CancelledError:
         pass
     except Exception:
         logger.exception("CC stream error")
+        try:
+            session.buffer += "\n\n⚠️ Stream error — session is still alive, try sending another message"
+            await _edit_output(session, bot, final=True)
+        except Exception:
+            pass
     finally:
         session.process = None
+        await _drain_queue(session, bot)
+
+
+async def _drain_queue(session: CCSession, bot) -> None:
+    """Process any messages that arrived while busy."""
+    if not session.pending_queue:
+        return
+    prompt = session.pending_queue[-1]
+    skipped = len(session.pending_queue) - 1
+    session.pending_queue.clear()
+
+    if not session.session_id:
+        await bot.send_message(
+            chat_id=session.chat_id,
+            text="💻 Queued message dropped — session has no resume ID. Send /cc &lt;prompt&gt; to start fresh.",
+            parse_mode="HTML",
+        )
+        return
+
+    skip_note = f" ({skipped} earlier skipped)" if skipped else ""
+    preview = _html_escape(prompt[:60]) + ("…" if len(prompt) > 60 else "")
+    msg = await bot.send_message(
+        chat_id=session.chat_id,
+        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>▶ {preview}{skip_note}</i>",
+        parse_mode="HTML",
+    )
+    session.output_msg_id = msg.message_id
+    session.buffer = ""
+    session.last_edit = 0.0
+    session.tool_status = ""
+    session.html_broken = False
+
+    try:
+        session.process = await _spawn_proc(session, prompt)
+    except Exception as e:
+        await bot.edit_message_text(
+            chat_id=session.chat_id,
+            message_id=msg.message_id,
+            text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n⚠️ {_html_escape(str(e)[:200])}",
+            parse_mode="HTML",
+        )
+        return
+
+    session.task = asyncio.create_task(_stream_loop(session, bot))
 
 
 def _build_cmd(prompt: str, session: CCSession) -> list[str]:
@@ -444,11 +571,17 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     if not session or session.process is not None or not session.session_id:
         return False
 
-    msg = await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n…")
+    truncated = prompt[:80] + "…" if len(prompt) > 80 else prompt
+    msg = await bot.send_message(
+        chat_id=chat_id,
+        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>{_html_escape(truncated)}</i>\n\n…",
+        parse_mode="HTML",
+    )
     session.output_msg_id = msg.message_id
     session.buffer = ""
     session.last_edit = 0.0
     session.tool_status = ""
+    session.html_broken = False
 
     try:
         session.process = await _spawn_proc(session, prompt)

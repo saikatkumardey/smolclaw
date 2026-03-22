@@ -313,11 +313,13 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /cc — start or interact with a live Claude Code session."""
     from .claude_code import (
         continue_session,
+        get_busy_hint,
         get_cc_commands,
         get_session_info,
         get_stop_summary,
         has_active_session,
         is_session_busy,
+        queue_message,
         start_session,
         stop_session,
     )
@@ -354,11 +356,15 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if has_active_session(chat_id):
         if is_session_busy(chat_id):
-            await msg.reply_text("💻 Still working… wait or /cc stop.")
+            if queue_message(chat_id, prompt):
+                await msg.reply_text("💻 Queued — will process when current turn finishes.")
+            else:
+                await msg.reply_text("💻 Still working… /cc stop to cancel.")
             return
         continued = await continue_session(chat_id, prompt, context.bot)
         if not continued:
-            await msg.reply_text("💻 Still working… wait or /cc stop.")
+            # Session exists but can't resume (no session_id) — start fresh
+            await start_session(chat_id, prompt, context.bot)
         return
 
     await start_session(chat_id, prompt, context.bot)
