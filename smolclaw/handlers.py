@@ -356,10 +356,15 @@ async def on_cc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if has_active_session(chat_id):
         if is_session_busy(chat_id):
+            hint = get_busy_hint(chat_id)
             if queue_message(chat_id, prompt):
-                await msg.reply_text("💻 Queued — will process when current turn finishes.")
+                await msg.reply_text(
+                    f"💻 Queued — CC is {hint}. Will run when this turn finishes.\n"
+                    "<i>Only the latest queued message is kept.</i>",
+                    parse_mode="HTML",
+                )
             else:
-                await msg.reply_text("💻 Still working… /cc stop to cancel.")
+                await msg.reply_text(f"💻 CC is {hint}… /cc stop to cancel.")
             return
         continued = await continue_session(chat_id, prompt, context.bot)
         if not continued:
@@ -379,10 +384,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("%s [%s]: %s", "Edit" if is_edit else "Incoming", chat_id, text[:80])
 
     # Route to CC session if one is active (no debounce)
-    from .claude_code import continue_session, has_active_session, is_session_busy
+    from .claude_code import continue_session, get_busy_hint, has_active_session, is_session_busy
     if has_active_session(chat_id):
         if is_session_busy(chat_id):
-            await msg.reply_text("💻 Still working… wait or /cc stop.")
+            hint = get_busy_hint(chat_id)
+            await msg.reply_text(f"💻 CC is {hint}… wait or /cc stop.")
             return
         continued = await continue_session(chat_id, text, context.bot)
         if continued:

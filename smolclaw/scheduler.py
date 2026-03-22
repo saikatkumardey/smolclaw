@@ -32,18 +32,28 @@ def _run_agent_in_thread(job_id: str, prompt: str, timeout: int) -> tuple[str | 
 
     result_holder: list[str] = []
     exc_holder: list[Exception] = []
+    loop_holder: list[asyncio.AbstractEventLoop] = []
 
     def _thread_target() -> None:
+        loop = asyncio.new_event_loop()
+        loop_holder.append(loop)
         try:
-            result_holder.append(asyncio.run(run(chat_id=f"cron:{job_id}", user_message=prompt)))
+            result_holder.append(loop.run_until_complete(run(chat_id=f"cron:{job_id}", user_message=prompt)))
         except Exception as e:
             exc_holder.append(e)
+        finally:
+            loop.close()
 
     t = threading.Thread(target=_thread_target, daemon=True)
     t.start()
     t.join(timeout=timeout)
 
     if t.is_alive():
+        # Cancel all tasks in the abandoned thread's event loop to free resources
+        if loop_holder:
+            loop = loop_holder[0]
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
         return None, TimeoutError(f"timed out after {timeout}s")
     if exc_holder:
         return None, exc_holder[0]
@@ -198,6 +208,17 @@ def _cleanup_idle_browsers() -> None:
         logger.debug("Browser cleanup skipped: {}", e)
 
 
+def _cleanup_idle_cc_sessions() -> None:
+    """Prune CC sessions that have been idle for too long."""
+    try:
+        from .claude_code import cleanup_idle_sessions
+        removed = cleanup_idle_sessions()
+        if removed:
+            logger.info("Cleaned up {} idle CC session(s)", removed)
+    except Exception as e:
+        logger.debug("CC session cleanup skipped: {}", e)
+
+
 def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
     scheduler.add_job(
         _cleanup_idle_browsers,
@@ -209,6 +230,12 @@ def _schedule_builtin_jobs(scheduler: BackgroundScheduler) -> None:
         _cleanup_stale_files,
         IntervalTrigger(hours=24),
         id="_file_cleanup",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _cleanup_idle_cc_sessions,
+        IntervalTrigger(minutes=30),
+        id="_cc_session_cleanup",
         replace_existing=True,
     )
 

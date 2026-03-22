@@ -18,6 +18,8 @@ _EDIT_INTERVAL = 2.0  # seconds between Telegram message edits
 _TYPING_INTERVAL = 4.0  # seconds between "typing…" chat actions
 _MAX_TG_MSG = 4000  # leave room for Telegram's 4096 limit
 _MAX_TURNS = 15
+_MAX_TOOL_LOG = 50  # cap tool_log to prevent unbounded growth
+_CC_IDLE_TIMEOUT = 3600  # clean up idle CC sessions after 1 hour
 
 # Fallback CC commands if init event hasn't been received yet
 _DEFAULT_CC_COMMANDS = {"compact", "cost", "context"}
@@ -139,12 +141,17 @@ def get_stop_summary(chat_id: str) -> str:
     if not session:
         return "Session ended."
     elapsed = _format_elapsed(time.monotonic() - session.started_at)
-    parts = [f"Session ended · {elapsed}"]
+    stats = []
     if session.total_cost > 0:
-        parts.append(f"${session.total_cost:.3f}")
+        stats.append(f"${session.total_cost:.3f}")
     if session.turns > 0:
-        parts.append(f"{session.turns} turns")
-    return " · ".join(parts)
+        stats.append(f"{session.turns} turns")
+    if session.tools_used > 0:
+        stats.append(f"{session.tools_used} tool calls")
+    summary = f"Session ended · {elapsed}"
+    if stats:
+        summary += " · " + " · ".join(stats)
+    return summary
 
 
 def _html_escape(text: str) -> str:
@@ -192,20 +199,25 @@ def _md_to_tg_html(text: str) -> str:
     return text
 
 
+def _truncate(text: str, limit: int = 60) -> str:
+    """Truncate text with ellipsis indicator."""
+    return text[:limit] + "…" if len(text) > limit else text
+
+
 def _tool_status_line(block: dict) -> str:
     """Build a compact one-line tool status like '🔧 Read: main.py'."""
     name = block.get("name", "?")
     inp = block.get("input", {})
     hint_map = {
-        "Bash": lambda: inp.get("description", inp.get("command", "")[:60]),
+        "Bash": lambda: _truncate(inp.get("description", "") or inp.get("command", "")),
         "Read": lambda: inp.get("file_path", "").split("/")[-1],
         "Write": lambda: inp.get("file_path", "").split("/")[-1],
         "Edit": lambda: inp.get("file_path", "").split("/")[-1],
-        "Glob": lambda: inp.get("pattern", ""),
-        "Grep": lambda: inp.get("pattern", ""),
-        "Agent": lambda: inp.get("description", inp.get("prompt", "")[:40]),
-        "WebFetch": lambda: inp.get("url", "")[:50],
-        "WebSearch": lambda: inp.get("query", "")[:50],
+        "Glob": lambda: _truncate(inp.get("pattern", "")),
+        "Grep": lambda: _truncate(inp.get("pattern", "")),
+        "Agent": lambda: _truncate(inp.get("description", "") or inp.get("prompt", ""), 40),
+        "WebFetch": lambda: _truncate(inp.get("url", ""), 50),
+        "WebSearch": lambda: _truncate(inp.get("query", ""), 50),
         "TodoWrite": lambda: "updating tasks",
         "NotebookEdit": lambda: inp.get("file_path", "").split("/")[-1],
     }
@@ -213,6 +225,13 @@ def _tool_status_line(block: dict) -> str:
     if hint:
         return f"🔧 {name}: {hint}"
     return f"🔧 {name}"
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
 
 
 def _format_event(event: dict, session: CCSession) -> str:
@@ -238,7 +257,12 @@ def _format_event(event: dict, session: CCSession) -> str:
         text_parts = []
         for b in blocks:
             if b.get("type") == "tool_use":
-                session.tool_status = _tool_status_line(b)
+                status = _tool_status_line(b)
+                session.tool_status = status
+                session.tools_used += 1
+                session.tool_log.append(status.removeprefix("🔧 "))
+                if len(session.tool_log) > _MAX_TOOL_LOG:
+                    session.tool_log = session.tool_log[-_MAX_TOOL_LOG:]
             elif b.get("type") == "text":
                 text = b.get("text", "")
                 if text:
@@ -318,48 +342,42 @@ async def _edit_output(session: CCSession, bot, final: bool = False) -> None:
         return
 
     text = _build_display(session, done=final)
-    # If HTML previously broke on this message, stay plain to avoid flicker
-    if session.html_broken:
+    # Try HTML first, fall back to plain text on parse errors.
+    # Retry HTML on final edits even if previously broken (content may have changed).
+    use_html = not session.html_broken or final
+    if use_html:
         try:
             await bot.edit_message_text(
                 chat_id=session.chat_id,
                 message_id=session.output_msg_id,
-                text=_strip_html(text),
+                text=text,
+                parse_mode="HTML",
                 disable_web_page_preview=True,
             )
             session.last_edit = now
+            session.html_broken = False  # recovered
+            return
         except Exception as e:
-            if "not modified" not in str(e).lower():
-                logger.debug("CC plain edit failed: %s", e)
-        return
+            err = str(e).lower()
+            if "not modified" in err:
+                return
+            if "parse" not in err and "can't" not in err:
+                logger.debug("CC edit failed: %s", e)
+                return
+            session.html_broken = True
 
+    # Plain text fallback
     try:
         await bot.edit_message_text(
             chat_id=session.chat_id,
             message_id=session.output_msg_id,
-            text=text,
-            parse_mode="HTML",
+            text=_strip_html(text),
             disable_web_page_preview=True,
         )
         session.last_edit = now
     except Exception as e:
-        err = str(e).lower()
-        if "not modified" in err:
-            return
-        if "parse" not in err and "can't" not in err:
-            logger.debug("CC edit failed: %s", e)
-            return
-        session.html_broken = True
-        try:
-            await bot.edit_message_text(
-                chat_id=session.chat_id,
-                message_id=session.output_msg_id,
-                text=_strip_html(text),
-                disable_web_page_preview=True,
-            )
-            session.last_edit = now
-        except Exception:
-            logger.debug("HTML fallback edit failed", exc_info=True)
+        if "not modified" not in str(e).lower():
+            logger.debug("CC plain edit failed: %s", e)
 
 
 async def _maybe_split_message(session: CCSession, bot) -> None:
@@ -434,6 +452,7 @@ async def _stream_loop(session: CCSession, bot) -> None:
                 logger.debug("Failed to read stderr", exc_info=True)
 
         exit_code = proc.returncode
+        stderr_text = _strip_ansi(stderr_text)
         if not session.buffer.strip() and stderr_text:
             session.buffer = f"⚠️ error:\n<pre>{_html_escape(stderr_text[:500])}</pre>"
         elif not session.buffer.strip() and exit_code:
@@ -536,10 +555,12 @@ async def start_session(chat_id: str, prompt: str, bot, working_dir: str | None 
         await bot.send_message(chat_id=chat_id, text="🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\nSession already running. Send /cc stop first.")
         return
 
-    truncated = prompt[:80] + "…" if len(prompt) > 80 else prompt
+    truncated = _truncate(prompt, 80)
+    resuming = chat_id in _sessions and _sessions.get(chat_id, CCSession(chat_id="")).session_id
+    label = "resuming…" if resuming else "starting…"
     msg = await bot.send_message(
         chat_id=chat_id,
-        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>{_html_escape(truncated)}</i>\n\nstarting…",
+        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>{_html_escape(truncated)}</i>\n\n{label}",
         parse_mode="HTML",
     )
     session = CCSession(
@@ -571,10 +592,10 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
     if not session or session.process is not None or not session.session_id:
         return False
 
-    truncated = prompt[:80] + "…" if len(prompt) > 80 else prompt
+    truncated = _truncate(prompt, 80)
     msg = await bot.send_message(
         chat_id=chat_id,
-        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>{_html_escape(truncated)}</i>\n\n…",
+        text=f"🅲🅻🅰🆄🅳🅴 🅲🅾🅳🅴\n<i>{_html_escape(truncated)}</i>\n\nresuming…",
         parse_mode="HTML",
     )
     session.output_msg_id = msg.message_id
@@ -595,6 +616,18 @@ async def continue_session(chat_id: str, prompt: str, bot) -> bool:
 
     session.task = asyncio.create_task(_stream_loop(session, bot))
     return True
+
+
+def cleanup_idle_sessions() -> int:
+    """Remove CC sessions that have been idle (no process) for too long."""
+    now = time.monotonic()
+    stale = [
+        cid for cid, s in _sessions.items()
+        if s.process is None and (now - s.started_at) > _CC_IDLE_TIMEOUT
+    ]
+    for cid in stale:
+        _sessions.pop(cid, None)
+    return len(stale)
 
 
 async def stop_session(chat_id: str) -> bool:

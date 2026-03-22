@@ -157,7 +157,8 @@ _TASK_EXPIRY_SECONDS = 3600
 _TASK_STUCK_SECONDS = 7200
 
 
-def list_tasks() -> list[dict]:
+def _prune_stale_tasks() -> None:
+    """Remove expired completed tasks and cancel stuck ones."""
     now = time.time()
     stale = [
         tid for tid, info in _task_registry.items()
@@ -170,6 +171,11 @@ def list_tasks() -> list[dict]:
             logger.warning("Pruning stuck task {} ({})", tid, info["description"])
             info["task"].cancel()
 
+
+def list_tasks() -> list[dict]:
+    _prune_stale_tasks()
+
+    now = time.time()
     rows = []
     for tid, info in _task_registry.items():
         elapsed = int(now - info["started_at"])
@@ -275,7 +281,7 @@ async def _ensure_session(
 
     # Cron jobs get a fresh event loop per call, so cached sessions have dead transports
     if existing is not None and chat_id.startswith("cron:"):
-        _sessions.pop(chat_id, None)
+        await reset_session(chat_id)
         existing = None
 
     if existing is not None and existing.dynamic_tool_names != current_tool_names:
@@ -411,6 +417,7 @@ async def _finalize_turn(chat_id: str, reply: str) -> None:
     except Exception as e:
         logger.warning("Auto-rotation failed for {}: {} — forcing session removal", chat_id, e)
         _sessions.pop(chat_id, None)
+    _prune_stale_tasks()
 
 
 def _cleanup_locks(chat_id: str) -> None:
