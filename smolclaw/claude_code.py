@@ -88,6 +88,25 @@ def _html_escape(text: str) -> str:
     )
 
 
+def _md_to_tg_html(text: str) -> str:
+    """Convert CommonMark markdown (already HTML-escaped) to Telegram HTML tags."""
+    import re
+
+    # Code fences → <code> (must come before inline transforms)
+    text = re.sub(r"```(?:\w*)\n(.*?)```", r"<code>\1</code>", text, flags=re.DOTALL)
+    # Inline code
+    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+    # Bold: **text** → <b>text</b>
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    # Italic: *text* or _text_ → <i>text</i>  (but not inside words for _)
+    text = re.sub(r"(?<!\w)\*([^*]+?)\*(?!\w)", r"<i>\1</i>", text)
+    # Headers → bold
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+    # Bullet lists: leading "- " → "• "
+    text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
+    return text
+
+
 def _tool_status_line(block: dict) -> str:
     """Build a compact one-line tool status like '🔧 Read: main.py'."""
     name = block.get("name", "?")
@@ -132,7 +151,7 @@ def _format_event(event: dict, session: CCSession) -> str:
                 text = b.get("text", "")
                 if text:
                     session.tool_status = ""
-                    text_parts.append(_html_escape(text))
+                    text_parts.append(_md_to_tg_html(_html_escape(text)))
         return "".join(text_parts)
 
     if etype == "result":
